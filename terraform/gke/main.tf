@@ -107,7 +107,7 @@ resource "google_container_node_pool" "a100_pool" {
     disk_size_gb    = 200
     disk_type       = "pd-ssd"
     service_account = google_service_account.gke_sa.email
-    
+
     # Use spot instances for cost savings (60-80% discount)
     spot = true
 
