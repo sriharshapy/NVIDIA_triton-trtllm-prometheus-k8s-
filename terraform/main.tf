@@ -1,6 +1,6 @@
 terraform {
   required_version = ">= 1.0"
-  
+
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -30,9 +30,9 @@ resource "google_project_iam_member" "trt_llm_sa_logging" {
 # H100 GPU instance
 resource "google_compute_instance" "h100_instance" {
   name         = var.instance_name
-  machine_type = "a3-highgpu-1g"  # H100 1g instance type
+  machine_type = "a3-highgpu-1g" # H100 1g instance type
   zone         = var.zone
-  
+
   # Ensure service account is created before instance
   depends_on = [google_service_account.trt_llm_sa]
 
@@ -82,7 +82,7 @@ resource "google_compute_instance" "h100_instance" {
 resource "google_compute_firewall" "triton_http" {
   name    = "triton-http-${var.instance_name}"
   network = "default"
-  
+
   # Firewall rules can be created independently
 
   allow {
