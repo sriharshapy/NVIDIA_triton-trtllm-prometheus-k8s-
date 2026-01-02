@@ -128,11 +128,11 @@ jobs:
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    needs: terraform-plan
+    # Removed needs: terraform-plan - apply can run independently
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
     environment:
       name: production
-      url: ${{ steps.get-outputs.outputs.instance_ip || steps.get-outputs.outputs.cluster_endpoint }}
+      url: ${{ steps.get-outputs.outputs.instance_ip || steps.get-gke-outputs.outputs.cluster_endpoint }}
     
     steps:
       - name: Checkout code
@@ -167,8 +167,11 @@ jobs:
         run: |
           INSTANCE_IP=$(terraform output -raw instance_ip)
           INSTANCE_ZONE=$(terraform output -raw instance_zone)
+          INSTANCE_NAME=$(terraform output -raw instance_name)
           echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
           echo "instance_zone=$INSTANCE_ZONE" >> $GITHUB_OUTPUT
+          echo "instance_name=$INSTANCE_NAME" >> $GITHUB_OUTPUT
+          echo "[$(date)] Instance Name: $INSTANCE_NAME"
           echo "[$(date)] Instance IP: $INSTANCE_IP"
           echo "[$(date)] Instance Zone: $INSTANCE_ZONE"
 
@@ -183,7 +186,7 @@ jobs:
 
       - name: Get GKE Outputs
         if: github.event.inputs.deployment_type == 'gke'
-        id: get-outputs
+        id: get-gke-outputs
         working-directory: terraform/gke
         run: |
           CLUSTER_NAME=$(terraform output -raw cluster_name)
@@ -201,8 +204,8 @@ jobs:
         run: |
           echo "[$(date)] Configuring kubectl for GKE cluster..."
           gcloud container clusters get-credentials \
-            ${{ steps.get-outputs.outputs.cluster_name }} \
-            --zone ${{ steps.get-outputs.outputs.cluster_location }} \
+            ${{ steps.get-gke-outputs.outputs.cluster_name }} \
+            --zone ${{ steps.get-gke-outputs.outputs.cluster_location }} \
             --project ${{ secrets.GCP_PROJECT_ID }}
           echo "[$(date)] kubectl configured successfully"
 
@@ -231,14 +234,14 @@ jobs:
             echo "**Deployment Type:** GKE (Kubernetes)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Cluster Details" >> $GITHUB_STEP_SUMMARY
-            echo "- **Cluster Name:** \`${{ steps.get-outputs.outputs.cluster_name }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Cluster Endpoint:** \`${{ steps.get-outputs.outputs.cluster_endpoint }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Cluster Location:** \`${{ steps.get-outputs.outputs.cluster_location }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cluster Name:** \`${{ steps.get-gke-outputs.outputs.cluster_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cluster Endpoint:** \`${{ steps.get-gke-outputs.outputs.cluster_endpoint }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cluster Location:** \`${{ steps.get-gke-outputs.outputs.cluster_location }}\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Get Credentials" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-            echo "gcloud container clusters get-credentials ${{ steps.get-outputs.outputs.cluster_name }} \\" >> $GITHUB_STEP_SUMMARY
-            echo "  --zone ${{ steps.get-outputs.outputs.cluster_location }} \\" >> $GITHUB_STEP_SUMMARY
+            echo "gcloud container clusters get-credentials ${{ steps.get-gke-outputs.outputs.cluster_name }} \\" >> $GITHUB_STEP_SUMMARY
+            echo "  --zone ${{ steps.get-gke-outputs.outputs.cluster_location }} \\" >> $GITHUB_STEP_SUMMARY
             echo "  --project ${{ secrets.GCP_PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
