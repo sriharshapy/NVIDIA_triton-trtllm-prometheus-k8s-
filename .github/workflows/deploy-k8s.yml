@@ -56,6 +56,12 @@ jobs:
             --project ${{ secrets.GCP_PROJECT_ID }}
           echo "[$(date)] kubectl configured successfully"
 
+      - name: Install jq
+        run: |
+          echo "[$(date)] Installing jq..."
+          sudo apt-get update && sudo apt-get install -y jq
+          echo "[$(date)] jq installed"
+
       - name: Verify GPU support
         run: |
           echo "[$(date)] Verifying GPU support in cluster..."
@@ -326,10 +332,26 @@ jobs:
       - name: Undeploy resources
         run: |
           echo "[$(date)] Undeploying Kubernetes resources..."
+          # Delete services
+          kubectl delete -f k8s/prometheus-service.yaml --ignore-not-found=true
+          kubectl delete -f k8s/openwebui-service.yaml --ignore-not-found=true
           kubectl delete -f k8s/service.yaml --ignore-not-found=true
+          # Delete deployments
+          kubectl delete -f k8s/prometheus-deployment.yaml --ignore-not-found=true
+          kubectl delete -f k8s/openwebui-deployment.yaml --ignore-not-found=true
           kubectl delete -f k8s/deployment.yaml --ignore-not-found=true
+          # Delete PVCs
+          kubectl delete -f k8s/prometheus-pvc.yaml --ignore-not-found=true
+          kubectl delete -f k8s/openwebui-pvc.yaml --ignore-not-found=true
           kubectl delete -f k8s/pvc.yaml --ignore-not-found=true
+          # Delete ConfigMaps
+          kubectl delete -f k8s/prometheus-configmap.yaml --ignore-not-found=true
+          kubectl delete -f k8s/openwebui-configmap.yaml --ignore-not-found=true
           kubectl delete -f k8s/configmap.yaml --ignore-not-found=true
+          # Delete ResourceQuota and LimitRange
+          kubectl delete -f k8s/resource-quota.yaml --ignore-not-found=true
+          kubectl delete -f k8s/limit-range.yaml --ignore-not-found=true
+          # Delete namespace (this will delete any remaining resources)
           kubectl delete -f k8s/namespace.yaml --ignore-not-found=true
           echo "[$(date)] Undeployment completed"
 
