@@ -20,6 +20,12 @@ resource "google_container_cluster" "trt_llm_cluster" {
   name     = var.cluster_name
   location = var.zone
   
+  # Enable required APIs before creating cluster
+  depends_on = [
+    google_project_service.container,
+    google_project_service.compute,
+  ]
+  
   # We can't create a cluster with no node pool defined, but we want to only use
   # separately managed node pools. So we create the smallest possible default
   # node pool and immediately delete it.
@@ -69,23 +75,26 @@ resource "google_container_cluster" "trt_llm_cluster" {
     purpose = "trt-llm-inference"
     model   = "qwen3-8b"
   }
-  
-  depends_on = [
-    google_project_service.container,
-    google_project_service.compute,
-  ]
 }
 
 # Node pool for H100 GPUs
 resource "google_container_node_pool" "h100_pool" {
-  name       = "h100-node-pool"
-  location   = var.zone
-  cluster    = google_container_cluster.trt_llm_cluster.name
-  node_count = var.node_count
+  name     = "h100-node-pool"
+  location = var.zone
+  cluster  = google_container_cluster.trt_llm_cluster.name
+  
+  # Use initial_node_count when autoscaling is enabled
+  initial_node_count = var.node_count
+  
+  # Ensure cluster is created before node pool
+  depends_on = [
+    google_container_cluster.trt_llm_cluster,
+    google_service_account.gke_sa,
+  ]
   
   autoscaling {
     min_node_count = var.min_node_count
-    max_node_count = var.max_node_count
+    max_node_count = var.max_node_count  # Restricted to 1 for single H100 GPU deployment
   }
   
   management {
@@ -136,6 +145,64 @@ resource "google_container_node_pool" "h100_pool" {
     max_surge       = 1
     max_unavailable = 0
   }
+}
+
+# CPU Node pool for OpenWebUI and other non-GPU workloads
+resource "google_container_node_pool" "cpu_pool" {
+  name     = "cpu-node-pool"
+  location = var.zone
+  cluster  = google_container_cluster.trt_llm_cluster.name
+  
+  initial_node_count = 1  # Start with 1 CPU node for Prometheus and OpenWebUI
+  
+  autoscaling {
+    min_node_count = 1  # Keep 1 node for Prometheus and OpenWebUI
+    max_node_count = 1  # Limit to 1 CPU node (cheap instances)
+  }
+  
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+  
+  node_config {
+    machine_type    = "e2-standard-2"  # 2 vCPU, 8GB RAM - enough for OpenWebUI (1 CPU) + Prometheus (1 CPU)
+    disk_size_gb    = 30
+    disk_type       = "pd-standard"
+    service_account = google_service_account.gke_sa.email
+    
+    oauth_scopes = [
+      "https://www.googleapis.com/auth/cloud-platform",
+    ]
+    
+    # Labels for node selection
+    labels = {
+      accelerator = "cpu"
+      pool        = "cpu"
+      workload-type = "cpu"
+    }
+    
+    # Taints for CPU nodes (optional - to ensure only non-GPU workloads)
+    taint {
+      key    = "workload-type"
+      value  = "cpu"
+      effect = "NO_SCHEDULE"
+    }
+    
+    metadata = {
+      disable-legacy-endpoints = "true"
+    }
+  }
+  
+  upgrade_settings {
+    max_surge       = 1
+    max_unavailable = 0
+  }
+  
+  depends_on = [
+    google_container_cluster.trt_llm_cluster,
+    google_service_account.gke_sa,
+  ]
 }
 
 # Service account for GKE
@@ -194,7 +261,9 @@ output "cluster_location" {
 }
 
 output "cluster_ca_certificate" {
-  value       = google_container_cluster.trt_llm_cluster.master_auth[0].cluster_ca_certificate
+  # Use master_auth for older GKE versions, or cluster_ca_certificate for newer
+  # This handles both authentication methods
+  value       = try(google_container_cluster.trt_llm_cluster.master_auth[0].cluster_ca_certificate, google_container_cluster.trt_llm_cluster.cluster_ca_certificate, "")
   description = "GKE cluster CA certificate"
   sensitive   = true
 }

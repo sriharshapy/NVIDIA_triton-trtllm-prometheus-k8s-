@@ -1,0 +1,272 @@
+name: Check Deployments and Get URLs
+
+on:
+  workflow_dispatch:
+    # Manual trigger only - checks deployment status and gets service endpoints
+
+env:
+  GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+  GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+  GOOGLE_REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  GOOGLE_ZONE: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+  CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}
+  NAMESPACE: triton-inference
+
+jobs:
+  check-deployments:
+    name: Check Deployments and Get URLs
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure kubectl
+        run: |
+          echo "[$(date)] Configuring kubectl for GKE cluster..."
+          gcloud container clusters get-credentials \
+            ${{ env.CLUSTER_NAME }} \
+            --zone ${{ env.GOOGLE_ZONE }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+          echo "[$(date)] kubectl configured successfully"
+
+      - name: Check cluster connection
+        run: |
+          echo "[$(date)] Checking cluster connection..."
+          kubectl cluster-info
+          echo "[$(date)] ✓ Connected to cluster: ${{ env.CLUSTER_NAME }}"
+
+      - name: Check namespace
+        run: |
+          echo "[$(date)] Checking namespace..."
+          if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "[$(date)] ✓ Namespace '${{ env.NAMESPACE }}' exists"
+          else
+            echo "[$(date)] ✗ Namespace '${{ env.NAMESPACE }}' not found"
+            exit 1
+          fi
+
+      - name: Check deployments status
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "[$(date)] Deployment Status"
+          echo "=========================================="
+          kubectl get deployments -n ${{ env.NAMESPACE }} -o wide
+          echo ""
+          
+          echo "=========================================="
+          echo "[$(date)] Pod Status"
+          echo "=========================================="
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
+          echo ""
+
+      - name: Check services
+        run: |
+          echo "=========================================="
+          echo "[$(date)] Service Status"
+          echo "=========================================="
+          kubectl get services -n ${{ env.NAMESPACE }} -o wide
+          echo ""
+
+      - name: Get service endpoints
+        id: get-endpoints
+        run: |
+          echo "=========================================="
+          echo "[$(date)] Getting Service Endpoints"
+          echo "=========================================="
+          
+          # Get LoadBalancer IPs
+          TRITON_IP=$(kubectl get service triton-qwen3-8b -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          OPENWEBUI_IP=$(kubectl get service openwebui -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          PROMETHEUS_IP=$(kubectl get service prometheus -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          
+          # Get Ingress IPs if deployed
+          TRITON_INGRESS_IP=$(kubectl get ingress triton-qwen3-8b-ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          OPENWEBUI_INGRESS_IP=$(kubectl get ingress openwebui-ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          PROMETHEUS_INGRESS_IP=$(kubectl get ingress prometheus-ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          
+          # Set defaults
+          TRITON_IP=${TRITON_IP:-"pending"}
+          OPENWEBUI_IP=${OPENWEBUI_IP:-"pending"}
+          PROMETHEUS_IP=${PROMETHEUS_IP:-"pending"}
+          
+          # Output to GitHub Actions
+          echo "triton_ip=$TRITON_IP" >> $GITHUB_OUTPUT
+          echo "openwebui_ip=$OPENWEBUI_IP" >> $GITHUB_OUTPUT
+          echo "prometheus_ip=$PROMETHEUS_IP" >> $GITHUB_OUTPUT
+          echo "triton_ingress_ip=$TRITON_INGRESS_IP" >> $GITHUB_OUTPUT
+          echo "openwebui_ingress_ip=$OPENWEBUI_INGRESS_IP" >> $GITHUB_OUTPUT
+          echo "prometheus_ingress_ip=$PROMETHEUS_INGRESS_IP" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "SERVICE ENDPOINTS (LoadBalancer)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Triton Inference Server:"
+          if [ "$TRITON_IP" != "pending" ] && [ -n "$TRITON_IP" ]; then
+            echo "  ✓ HTTP:    http://$TRITON_IP:8000"
+            echo "  ✓ gRPC:    $TRITON_IP:8001"
+            echo "  ✓ Metrics: http://$TRITON_IP:8002/metrics"
+          else
+            echo "  ⚠ IP: pending (check service status)"
+          fi
+          echo ""
+          echo "OpenWebUI:"
+          if [ "$OPENWEBUI_IP" != "pending" ] && [ -n "$OPENWEBUI_IP" ]; then
+            echo "  ✓ Web UI:  http://$OPENWEBUI_IP"
+          else
+            echo "  ⚠ IP: pending (check service status)"
+          fi
+          echo ""
+          echo "Prometheus:"
+          if [ "$PROMETHEUS_IP" != "pending" ] && [ -n "$PROMETHEUS_IP" ]; then
+            echo "  ✓ Metrics UI: http://$PROMETHEUS_IP:9090"
+          else
+            echo "  ⚠ IP: pending (check service status)"
+          fi
+          echo ""
+          
+          # Show Ingress if available
+          if [ -n "$TRITON_INGRESS_IP" ] || [ -n "$OPENWEBUI_INGRESS_IP" ] || [ -n "$PROMETHEUS_INGRESS_IP" ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "INGRESS ENDPOINTS (if deployed)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            if [ -n "$TRITON_INGRESS_IP" ]; then
+              echo "  Triton Ingress:    http://$TRITON_INGRESS_IP"
+            fi
+            if [ -n "$OPENWEBUI_INGRESS_IP" ]; then
+              echo "  OpenWebUI Ingress: http://$OPENWEBUI_INGRESS_IP"
+            fi
+            if [ -n "$PROMETHEUS_INGRESS_IP" ]; then
+              echo "  Prometheus Ingress: http://$PROMETHEUS_INGRESS_IP:9090"
+            fi
+            echo ""
+          fi
+
+      - name: Check ingress status
+        run: |
+          echo "=========================================="
+          echo "[$(date)] Ingress Status"
+          echo "=========================================="
+          if kubectl get ingress -n ${{ env.NAMESPACE }} &>/dev/null; then
+            kubectl get ingress -n ${{ env.NAMESPACE }} -o wide
+          else
+            echo "No ingress resources found"
+          fi
+          echo ""
+
+      - name: Check PVC status
+        run: |
+          echo "=========================================="
+          echo "[$(date)] PersistentVolumeClaim Status"
+          echo "=========================================="
+          kubectl get pvc -n ${{ env.NAMESPACE }}
+          echo ""
+
+      - name: Health check endpoints
+        run: |
+          echo "=========================================="
+          echo "[$(date)] Health Check"
+          echo "=========================================="
+          
+          # Check Triton health
+          TRITON_IP="${{ steps.get-endpoints.outputs.triton_ip }}"
+          if [ -n "$TRITON_IP" ] && [ "$TRITON_IP" != "pending" ]; then
+            echo "Checking Triton health..."
+            if curl -s -f "http://$TRITON_IP:8000/v2/health/ready" > /dev/null 2>&1; then
+              echo "  ✓ Triton: Healthy"
+            else
+              echo "  ✗ Triton: Not responding"
+            fi
+          else
+            echo "  ⚠ Triton: IP not available"
+          fi
+          
+          # Check OpenWebUI health
+          OPENWEBUI_IP="${{ steps.get-endpoints.outputs.openwebui_ip }}"
+          if [ -n "$OPENWEBUI_IP" ] && [ "$OPENWEBUI_IP" != "pending" ]; then
+            echo "Checking OpenWebUI health..."
+            if curl -s -f "http://$OPENWEBUI_IP/api/v1/health" > /dev/null 2>&1; then
+              echo "  ✓ OpenWebUI: Healthy"
+            else
+              echo "  ✗ OpenWebUI: Not responding"
+            fi
+          else
+            echo "  ⚠ OpenWebUI: IP not available"
+          fi
+          
+          # Check Prometheus health
+          PROMETHEUS_IP="${{ steps.get-endpoints.outputs.prometheus_ip }}"
+          if [ -n "$PROMETHEUS_IP" ] && [ "$PROMETHEUS_IP" != "pending" ]; then
+            echo "Checking Prometheus health..."
+            if curl -s -f "http://$PROMETHEUS_IP:9090/-/healthy" > /dev/null 2>&1; then
+              echo "  ✓ Prometheus: Healthy"
+            else
+              echo "  ✗ Prometheus: Not responding"
+            fi
+          else
+            echo "  ⚠ Prometheus: IP not available"
+          fi
+          echo ""
+
+      - name: Create Summary
+        run: |
+          echo "## 📊 Deployment Status Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ env.CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Namespace:** ${{ env.NAMESPACE }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Check Time:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔗 Service Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Triton Inference Server" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.get-endpoints.outputs.triton_ip }}" != "pending" ] && [ -n "${{ steps.get-endpoints.outputs.triton_ip }}" ]; then
+            echo "- **HTTP:** \`http://${{ steps.get-endpoints.outputs.triton_ip }}:8000\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **gRPC:** \`${{ steps.get-endpoints.outputs.triton_ip }}:8001\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Metrics:** \`http://${{ steps.get-endpoints.outputs.triton_ip }}:8002/metrics\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status:** ⚠ IP pending or service not deployed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### OpenWebUI" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.get-endpoints.outputs.openwebui_ip }}" != "pending" ] && [ -n "${{ steps.get-endpoints.outputs.openwebui_ip }}" ]; then
+            echo "- **Web UI:** \`http://${{ steps.get-endpoints.outputs.openwebui_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status:** ⚠ IP pending or service not deployed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Prometheus" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.get-endpoints.outputs.prometheus_ip }}" != "pending" ] && [ -n "${{ steps.get-endpoints.outputs.prometheus_ip }}" ]; then
+            echo "- **Metrics UI:** \`http://${{ steps.get-endpoints.outputs.prometheus_ip }}:9090\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status:** ⚠ IP pending or service not deployed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Quick Commands" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Get all service IPs" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get svc -n ${{ env.NAMESPACE }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Get deployment status" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get deployments -n ${{ env.NAMESPACE }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Get pod status" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get pods -n ${{ env.NAMESPACE }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+

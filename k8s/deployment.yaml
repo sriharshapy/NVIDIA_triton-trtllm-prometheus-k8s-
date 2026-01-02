@@ -17,6 +17,10 @@ spec:
       labels:
         app: qwen3-8b
         component: triton-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
     spec:
       # Node selector for H100 GPU nodes
       nodeSelector:
@@ -139,6 +143,12 @@ spec:
             nvidia.com/gpu: 1
             memory: "64Gi"
             cpu: "16"
+        
+        # Add Prometheus scrape annotations
+        annotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "8002"
+          prometheus.io/path: "/metrics"
         
         livenessProbe:
           httpGet:

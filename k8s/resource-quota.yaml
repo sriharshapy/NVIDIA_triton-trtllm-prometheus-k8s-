@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: triton-inference-quota
+  namespace: triton-inference
+spec:
+  hard:
+    requests.cpu: "2"  # Total CPU requests (OpenWebUI: 500m + Prometheus: 1000m = 1.5, rounded to 2)
+    requests.memory: "2Gi"  # Total memory requests
+    limits.cpu: "2"  # Total CPU limits (OpenWebUI: 1000m + Prometheus: 1000m = 2)
+    limits.memory: "3Gi"  # Total memory limits
+    persistentvolumeclaims: "3"  # Model storage, OpenWebUI data, Prometheus storage
+

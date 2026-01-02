@@ -1,12 +1,16 @@
 name: CI - Lint and Validate
 
 on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    # Manual trigger only - workflows disabled by default for security
+  # Automatic triggers disabled by default
+  # Uncomment below to enable automatic CI runs
+  # pull_request:
+  #   branches:
+  #     - main
+  # push:
+  #   branches:
+  #     - main
 
 jobs:
   validate-terraform:

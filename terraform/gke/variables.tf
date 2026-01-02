@@ -46,8 +46,12 @@ variable "min_node_count" {
 }
 
 variable "max_node_count" {
-  description = "Maximum number of nodes in the H100 node pool"
+  description = "Maximum number of nodes in the H100 node pool (restricted to 1 for single GPU deployment)"
   type        = number
-  default     = 3
+  default     = 1
+  validation {
+    condition     = var.max_node_count <= 1
+    error_message = "max_node_count must be 1 or less for single GPU deployment."
+  }
 }
 

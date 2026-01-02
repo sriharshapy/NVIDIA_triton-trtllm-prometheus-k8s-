@@ -50,6 +50,12 @@ log "INFO" "Step 1: Creating namespace..."
 kubectl apply -f "$SCRIPT_DIR/namespace.yaml" 2>&1 | tee -a "$LOG_FILE"
 log "INFO" "✓ Namespace created"
 
+# Step 1.5: Create ResourceQuota and LimitRange for CPU throttling
+log "INFO" "Step 1.5: Creating ResourceQuota and LimitRange..."
+kubectl apply -f "$SCRIPT_DIR/resource-quota.yaml" 2>&1 | tee -a "$LOG_FILE"
+kubectl apply -f "$SCRIPT_DIR/limit-range.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ Resource quotas and limits created"
+
 # Step 2: Create ConfigMap
 log "INFO" "Step 2: Creating ConfigMap..."
 kubectl apply -f "$SCRIPT_DIR/configmap.yaml" 2>&1 | tee -a "$LOG_FILE"
@@ -133,38 +139,148 @@ log "INFO" "Step 6: Creating Services..."
 kubectl apply -f "$SCRIPT_DIR/service.yaml" 2>&1 | tee -a "$LOG_FILE"
 log "INFO" "✓ Services created"
 
-# Step 7: Wait for deployment
-log "INFO" "Step 7: Waiting for deployment to be ready..."
+# Step 7: Create OpenWebUI PVC
+log "INFO" "Step 7: Creating OpenWebUI PersistentVolumeClaim..."
+kubectl apply -f "$SCRIPT_DIR/openwebui-pvc.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "Waiting for OpenWebUI PVC to be bound..."
+timeout=300
+elapsed=0
+while [ $elapsed -lt $timeout ]; do
+    if kubectl get pvc openwebui-data -n triton-inference -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Bound; then
+        log "INFO" "✓ OpenWebUI PVC is bound"
+        break
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+    log "INFO" "Waiting for OpenWebUI PVC... (${elapsed}s/${timeout}s)"
+done
+
+# Step 8: Create OpenWebUI ConfigMap
+log "INFO" "Step 8: Creating OpenWebUI ConfigMap..."
+kubectl apply -f "$SCRIPT_DIR/openwebui-configmap.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ OpenWebUI ConfigMap created"
+
+# Step 9: Deploy OpenWebUI
+log "INFO" "Step 9: Deploying OpenWebUI..."
+kubectl apply -f "$SCRIPT_DIR/openwebui-deployment.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ OpenWebUI deployment created"
+
+# Step 10: Create OpenWebUI Service
+log "INFO" "Step 10: Creating OpenWebUI Service..."
+kubectl apply -f "$SCRIPT_DIR/openwebui-service.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ OpenWebUI Service created"
+
+# Step 11: Create Prometheus PVC
+log "INFO" "Step 11: Creating Prometheus PersistentVolumeClaim..."
+kubectl apply -f "$SCRIPT_DIR/prometheus-pvc.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "Waiting for Prometheus PVC to be bound..."
+timeout=300
+elapsed=0
+while [ $elapsed -lt $timeout ]; do
+    if kubectl get pvc prometheus-storage -n triton-inference -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Bound; then
+        log "INFO" "✓ Prometheus PVC is bound"
+        break
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+    log "INFO" "Waiting for Prometheus PVC... (${elapsed}s/${timeout}s)"
+done
+
+# Step 12: Create Prometheus ConfigMap
+log "INFO" "Step 12: Creating Prometheus ConfigMap..."
+kubectl apply -f "$SCRIPT_DIR/prometheus-configmap.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ Prometheus ConfigMap created"
+
+# Step 13: Deploy Prometheus
+log "INFO" "Step 13: Deploying Prometheus..."
+kubectl apply -f "$SCRIPT_DIR/prometheus-deployment.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ Prometheus deployment created"
+
+# Step 14: Create Prometheus Service
+log "INFO" "Step 14: Creating Prometheus Service..."
+kubectl apply -f "$SCRIPT_DIR/prometheus-service.yaml" 2>&1 | tee -a "$LOG_FILE"
+log "INFO" "✓ Prometheus Service created"
+
+# Step 15: Wait for deployments
+log "INFO" "Step 15: Waiting for deployments to be ready..."
 kubectl wait --for=condition=available \
     --timeout=600s \
     deployment/triton-qwen3-8b \
     -n triton-inference \
-    2>&1 | tee -a "$LOG_FILE" || log "WARNING" "Deployment not ready within timeout"
+    2>&1 | tee -a "$LOG_FILE" || log "WARNING" "Triton deployment not ready within timeout"
 
-# Step 8: Get service endpoints
-log "INFO" "Step 8: Getting service endpoints..."
+kubectl wait --for=condition=available \
+    --timeout=300s \
+    deployment/openwebui \
+    -n triton-inference \
+    2>&1 | tee -a "$LOG_FILE" || log "WARNING" "OpenWebUI deployment not ready within timeout"
+
+kubectl wait --for=condition=available \
+    --timeout=300s \
+    deployment/prometheus \
+    -n triton-inference \
+    2>&1 | tee -a "$LOG_FILE" || log "WARNING" "Prometheus deployment not ready within timeout"
+
+# Step 16: Get service endpoints
+log "INFO" "Step 16: Getting service endpoints..."
 sleep 10
 
-EXTERNAL_IP=$(kubectl get service triton-qwen3-8b -n triton-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+TRITON_IP=$(kubectl get service triton-qwen3-8b -n triton-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+OPENWEBUI_IP=$(kubectl get service openwebui -n triton-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+PROMETHEUS_IP=$(kubectl get service prometheus -n triton-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
 
-if [ "$EXTERNAL_IP" != "pending" ] && [ -n "$EXTERNAL_IP" ]; then
-    log "INFO" "✓ External IP allocated: $EXTERNAL_IP"
+if [ "$TRITON_IP" != "pending" ] && [ -n "$TRITON_IP" ]; then
+    log "INFO" "✓ Triton External IP allocated: $TRITON_IP"
 else
-    log "INFO" "External IP is pending. It may take a few minutes to allocate."
-    log "INFO" "Check with: kubectl get svc triton-qwen3-8b -n triton-inference"
+    log "INFO" "Triton External IP is pending. It may take a few minutes to allocate."
+fi
+
+if [ "$OPENWEBUI_IP" != "pending" ] && [ -n "$OPENWEBUI_IP" ]; then
+    log "INFO" "✓ OpenWebUI External IP allocated: $OPENWEBUI_IP"
+else
+    log "INFO" "OpenWebUI External IP is pending. It may take a few minutes to allocate."
+fi
+
+if [ "$PROMETHEUS_IP" != "pending" ] && [ -n "$PROMETHEUS_IP" ]; then
+    log "INFO" "✓ Prometheus External IP allocated: $PROMETHEUS_IP"
+else
+    log "INFO" "Prometheus External IP is pending. It may take a few minutes to allocate."
 fi
 
 # Get pod status
 log "INFO" "Pod status:"
-kubectl get pods -n triton-inference -l app=qwen3-8b 2>&1 | tee -a "$LOG_FILE"
+kubectl get pods -n triton-inference 2>&1 | tee -a "$LOG_FILE"
 
 log "INFO" "=========================================="
 log "INFO" "Deployment completed!"
 log "INFO" "=========================================="
-log "INFO" "Service endpoints:"
-log "INFO" "  HTTP: http://${EXTERNAL_IP:-<pending>}:8000"
-log "INFO" "  gRPC: ${EXTERNAL_IP:-<pending>}:8001"
-log "INFO" "  Metrics: http://${EXTERNAL_IP:-<pending>}:8002/metrics"
+log "INFO" ""
+log "INFO" "╔══════════════════════════════════════════════════════════════╗"
+log "INFO" "║           SERVICE ENDPOINTS - COPY THESE ADDRESSES          ║"
+log "INFO" "╚══════════════════════════════════════════════════════════════╝"
+log "INFO" ""
+log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "INFO" "TRITON INFERENCE SERVER"
+log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "INFO" "  HTTP:    http://${TRITON_IP:-<pending>}:8000"
+log "INFO" "  gRPC:    ${TRITON_IP:-<pending>}:8001"
+log "INFO" "  Metrics: http://${TRITON_IP:-<pending>}:8002/metrics"
+log "INFO" ""
+log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "INFO" "OPENWEBUI"
+log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "INFO" "  Web UI:  http://${OPENWEBUI_IP:-<pending>}"
+log "INFO" ""
+log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "INFO" "PROMETHEUS"
+log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "INFO" "  Metrics UI: http://${PROMETHEUS_IP:-<pending>}:9090"
+log "INFO" ""
+log "INFO" "╔══════════════════════════════════════════════════════════════╗"
+log "INFO" "║  Note: If IPs show 'pending', wait 2-5 minutes and check: ║"
+log "INFO" "║  kubectl get svc -n triton-inference                         ║"
+log "INFO" "╚══════════════════════════════════════════════════════════════╝"
+log "INFO" ""
 log "INFO" ""
 log "INFO" "To check status:"
 log "INFO" "  kubectl get pods -n triton-inference"

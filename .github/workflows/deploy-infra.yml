@@ -20,18 +20,20 @@ on:
           - apply
           - destroy
         default: 'plan'
-  push:
-    branches:
-      - main
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/deploy-infra.yml'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/deploy-infra.yml'
+  # Automatic triggers disabled by default for security
+  # Uncomment below to enable automatic runs on push/PR
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'terraform/**'
+  #     - '.github/workflows/deploy-infra.yml'
+  # pull_request:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'terraform/**'
+  #     - '.github/workflows/deploy-infra.yml'
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
@@ -43,7 +45,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan'
     
     steps:
       - name: Checkout code
@@ -65,7 +67,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Terraform Init - VM
-        if: github.event.inputs.deployment_type == 'vm' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, 'vm'))
+        if: github.event.inputs.deployment_type == 'vm'
         working-directory: terraform
         run: |
           echo "[$(date)] Initializing Terraform for VM deployment..."
@@ -73,7 +75,7 @@ jobs:
           echo "[$(date)] Terraform initialization completed"
 
       - name: Terraform Plan - VM
-        if: github.event.inputs.deployment_type == 'vm' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, 'vm'))
+        if: github.event.inputs.deployment_type == 'vm'
         working-directory: terraform
         run: |
           echo "[$(date)] Running Terraform plan for VM deployment..."
@@ -81,7 +83,7 @@ jobs:
           echo "[$(date)] Terraform plan completed"
 
       - name: Terraform Init - GKE
-        if: github.event.inputs.deployment_type == 'gke' || (github.event_name == 'pull_request' && !contains(github.event.pull_request.title, 'vm'))
+        if: github.event.inputs.deployment_type == 'gke'
         working-directory: terraform/gke
         run: |
           echo "[$(date)] Initializing Terraform for GKE deployment..."
@@ -89,38 +91,39 @@ jobs:
           echo "[$(date)] Terraform initialization completed"
 
       - name: Terraform Plan - GKE
-        if: github.event.inputs.deployment_type == 'gke' || (github.event_name == 'pull_request' && !contains(github.event.pull_request.title, 'vm'))
+        if: github.event.inputs.deployment_type == 'gke'
         working-directory: terraform/gke
         run: |
           echo "[$(date)] Running Terraform plan for GKE deployment..."
           terraform plan -input=false -out=tfplan
           echo "[$(date)] Terraform plan completed"
 
-      - name: Comment PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### Terraform Plan 🤖
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*
-            
-            Terraform plan completed successfully for **${{ github.event.inputs.deployment_type || 'gke' }}** deployment.
-            
-            <details><summary>Show Plan</summary>
-            
-            \`\`\`
-            Plan completed - check logs for details
-            \`\`\`
-            
-            </details>
-            
-            *Workflow: \`${{ github.workflow }}\`*`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
+      # PR comment step disabled (automatic triggers disabled)
+      # - name: Comment PR
+      #   if: github.event_name == 'pull_request'
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const output = `#### Terraform Plan 🤖
+      #       *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*
+      #       
+      #       Terraform plan completed successfully for **${{ github.event.inputs.deployment_type || 'gke' }}** deployment.
+      #       
+      #       <details><summary>Show Plan</summary>
+      #       
+      #       \`\`\`
+      #       Plan completed - check logs for details
+      #       \`\`\`
+      #       
+      #       </details>
+      #       
+      #       *Workflow: \`${{ github.workflow }}\`*`;
+      #       github.rest.issues.createComment({
+      #         issue_number: context.issue.number,
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         body: output
+      #       })
 
   terraform-apply:
     name: Terraform Apply
@@ -209,8 +212,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ github.event.inputs.deployment_type }}" == "vm" ]; then
             echo "**Deployment Type:** VM (Compute Engine)" >> $GITHUB_STEP_SUMMARY
-            echo "**Instance IP:** ${{ steps.get-outputs.outputs.instance_ip }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Instance Zone:** ${{ steps.get-outputs.outputs.instance_zone }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Instance Details" >> $GITHUB_STEP_SUMMARY
+            echo "- **Instance IP:** \`${{ steps.get-outputs.outputs.instance_ip }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Instance Zone:** \`${{ steps.get-outputs.outputs.instance_zone }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Access" >> $GITHUB_STEP_SUMMARY
+            echo "- **SSH:** \`gcloud compute ssh ${{ steps.get-outputs.outputs.instance_name }} --zone=${{ steps.get-outputs.outputs.instance_zone }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Triton HTTP:** \`http://${{ steps.get-outputs.outputs.instance_ip }}:8000\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Triton gRPC:** \`${{ steps.get-outputs.outputs.instance_ip }}:8001\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Triton Metrics:** \`http://${{ steps.get-outputs.outputs.instance_ip }}:8002/metrics\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
             echo "1. Upload model files to the instance" >> $GITHUB_STEP_SUMMARY
@@ -218,14 +229,24 @@ jobs:
             echo "3. Test inference endpoint" >> $GITHUB_STEP_SUMMARY
           else
             echo "**Deployment Type:** GKE (Kubernetes)" >> $GITHUB_STEP_SUMMARY
-            echo "**Cluster Name:** ${{ steps.get-outputs.outputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Cluster Endpoint:** ${{ steps.get-outputs.outputs.cluster_endpoint }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Cluster Location:** ${{ steps.get-outputs.outputs.cluster_location }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Cluster Details" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cluster Name:** \`${{ steps.get-outputs.outputs.cluster_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cluster Endpoint:** \`${{ steps.get-outputs.outputs.cluster_endpoint }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cluster Location:** \`${{ steps.get-outputs.outputs.cluster_location }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Get Credentials" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "gcloud container clusters get-credentials ${{ steps.get-outputs.outputs.cluster_name }} \\" >> $GITHUB_STEP_SUMMARY
+            echo "  --zone ${{ steps.get-outputs.outputs.cluster_location }} \\" >> $GITHUB_STEP_SUMMARY
+            echo "  --project ${{ secrets.GCP_PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-            echo "1. Deploy Triton to Kubernetes (see k8s/deploy.sh)" >> $GITHUB_STEP_SUMMARY
-            echo "2. Upload model files to PVC" >> $GITHUB_STEP_SUMMARY
-            echo "3. Test inference endpoint" >> $GITHUB_STEP_SUMMARY
+            echo "1. Run **Deploy to Kubernetes** workflow to deploy services" >> $GITHUB_STEP_SUMMARY
+            echo "2. Service endpoints will be displayed after deployment" >> $GITHUB_STEP_SUMMARY
+            echo "3. Upload model files to PVC" >> $GITHUB_STEP_SUMMARY
+            echo "4. Test inference endpoint" >> $GITHUB_STEP_SUMMARY
           fi
 
   terraform-destroy:

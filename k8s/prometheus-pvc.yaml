@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-storage
+  namespace: triton-inference
+  labels:
+    app: prometheus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-rwo  # GCP SSD persistent disk
+  resources:
+    requests:
+      storage: 20Gi  # Storage for metrics data (30 day retention)
+  volumeMode: Filesystem
+

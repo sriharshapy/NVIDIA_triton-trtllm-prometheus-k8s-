@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openwebui-config
+  namespace: triton-inference
+  labels:
+    app: openwebui
+data:
+  # Triton service endpoint
+  TRITON_SERVICE: "triton-qwen3-8b-internal"
+  TRITON_HTTP_PORT: "8000"
+  TRITON_GRPC_PORT: "8001"
+  TRITON_MODEL_NAME: "qwen3_8b"
+  
+  # OpenWebUI settings
+  WEBUI_NAME: "Qwen 3 8B Inference"
+  ENABLE_SIGNUP: "true"
+  LOG_LEVEL: "INFO"
+

@@ -23,15 +23,27 @@ log "INFO" "=========================================="
 # Delete resources in reverse order
 log "INFO" "Deleting services..."
 kubectl delete -f "$SCRIPT_DIR/service.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/openwebui-service.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/prometheus-service.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
 
-log "INFO" "Deleting deployment..."
+log "INFO" "Deleting deployments..."
 kubectl delete -f "$SCRIPT_DIR/deployment.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/openwebui-deployment.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/prometheus-deployment.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
 
-log "INFO" "Deleting PVC..."
+log "INFO" "Deleting PVCs..."
 kubectl delete -f "$SCRIPT_DIR/pvc.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/openwebui-pvc.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/prometheus-pvc.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
 
-log "INFO" "Deleting ConfigMap..."
+log "INFO" "Deleting ConfigMaps..."
 kubectl delete -f "$SCRIPT_DIR/configmap.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/openwebui-configmap.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/prometheus-configmap.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+
+log "INFO" "Deleting ResourceQuota and LimitRange..."
+kubectl delete -f "$SCRIPT_DIR/resource-quota.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
+kubectl delete -f "$SCRIPT_DIR/limit-range.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"
 
 log "INFO" "Deleting namespace..."
 kubectl delete -f "$SCRIPT_DIR/namespace.yaml" --ignore-not-found=true 2>&1 | tee -a "$LOG_FILE"

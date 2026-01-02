@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data
+  namespace: triton-inference
+  labels:
+    app: openwebui
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-rwo  # GCP SSD persistent disk
+  resources:
+    requests:
+      storage: 10Gi  # Storage for user data and settings
+  volumeMode: Filesystem
+

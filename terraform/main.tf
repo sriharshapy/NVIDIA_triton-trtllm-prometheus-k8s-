@@ -32,6 +32,9 @@ resource "google_compute_instance" "h100_instance" {
   name         = var.instance_name
   machine_type = "a3-highgpu-1g"  # H100 1g instance type
   zone         = var.zone
+  
+  # Ensure service account is created before instance
+  depends_on = [google_service_account.trt_llm_sa]
 
   boot_disk {
     initialize_params {
@@ -79,6 +82,8 @@ resource "google_compute_instance" "h100_instance" {
 resource "google_compute_firewall" "triton_http" {
   name    = "triton-http-${var.instance_name}"
   network = "default"
+  
+  # Firewall rules can be created independently
 
   allow {
     protocol = "tcp"

@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: triton-inference
+  labels:
+    app: prometheus
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      component: monitoring
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        component: monitoring
+    spec:
+      # Use CPU nodes (not GPU nodes)
+      nodeSelector:
+        accelerator: cpu
+        pool: cpu
+      
+      # Tolerations (if CPU nodes have taints)
+      tolerations:
+      - key: workload-type
+        operator: Equal
+        value: cpu
+        effect: NoSchedule
+      
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.48.0
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - name: http
+          containerPort: 9090
+          protocol: TCP
+        
+        args:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--storage.tsdb.retention.time=30d'
+        - '--storage.tsdb.retention.size=15GB'  # Limit storage size
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+        - '--web.console.templates=/usr/share/prometheus/consoles'
+        - '--web.enable-lifecycle'
+        - '--storage.tsdb.wal-compression'  # Reduce I/O
+        - '--query.max-concurrency=20'  # Limit query concurrency
+        - '--query.max-samples=50000000'  # Limit query samples
+        
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+        
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"  # Guaranteed CPU allocation (1 full core)
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"  # Maximum CPU (1 full core) - prevents throttling
+        
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        persistentVolumeClaim:
+          claimName: prometheus-storage
+      
+      restartPolicy: Always
+

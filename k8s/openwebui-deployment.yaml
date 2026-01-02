@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openwebui
+  namespace: triton-inference
+  labels:
+    app: openwebui
+    component: web-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openwebui
+      component: web-ui
+  template:
+    metadata:
+      labels:
+        app: openwebui
+        component: web-ui
+    spec:
+      # Use CPU nodes (not GPU nodes)
+      nodeSelector:
+        accelerator: cpu
+        pool: cpu
+      
+      # Tolerations (if CPU nodes have taints)
+      tolerations:
+      - key: workload-type
+        operator: Equal
+        value: cpu
+        effect: NoSchedule
+      
+      containers:
+      - name: openwebui
+        image: ghcr.io/open-webui/open-webui:main
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        
+        env:
+        # OpenWebUI Configuration
+        - name: WEBUI_NAME
+          value: "Qwen 3 8B Inference"
+        
+        - name: WEBUI_URL
+          value: "http://localhost:8080"
+        
+        # Connect to Triton service (OpenAI-compatible endpoint)
+        # Note: Triton may need a proxy/adapter for OpenAI compatibility
+        # For now, using direct Triton endpoint - may need vLLM or similar adapter
+        - name: OPENAI_API_BASE_URL
+          value: "http://triton-qwen3-8b-internal:8000"
+        
+        - name: OPENAI_API_KEY
+          value: "not-required"  # Triton doesn't require API key
+        
+        # Alternative: Use environment variable for custom endpoint
+        - name: DEFAULT_MODEL
+          value: "qwen3-8b"
+        
+        # Model configuration
+        - name: DEFAULT_MODELS
+          value: "qwen3-8b"
+        
+        # UI Configuration
+        - name: ENABLE_SIGNUP
+          value: "true"
+        
+        - name: ENABLE_COMMUNITY_SHARING
+          value: "false"
+        
+        # Logging
+        - name: LOG_LEVEL
+          value: "INFO"
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"  # Guaranteed CPU allocation
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"  # Maximum CPU (1 full core)
+        
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        volumeMounts:
+        - name: data
+          mountPath: /app/backend/data
+        
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: openwebui-data
+      
+      restartPolicy: Always
+
