@@ -77,6 +77,10 @@ jobs:
       - name: Terraform Plan - VM
         if: github.event.inputs.deployment_type == 'vm'
         working-directory: terraform
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION || 'us-central1' }}
+          TF_VAR_zone: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
         run: |
           echo "[$(date)] Running Terraform plan for VM deployment..."
           terraform plan -input=false -out=tfplan
@@ -93,6 +97,11 @@ jobs:
       - name: Terraform Plan - GKE
         if: github.event.inputs.deployment_type == 'gke'
         working-directory: terraform/gke
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION || 'us-central1' }}
+          TF_VAR_zone: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+          TF_VAR_cluster_name: ${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}
         run: |
           echo "[$(date)] Running Terraform plan for GKE deployment..."
           terraform plan -input=false -out=tfplan
@@ -154,6 +163,10 @@ jobs:
       - name: Terraform Apply - VM
         if: github.event.inputs.deployment_type == 'vm'
         working-directory: terraform
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION || 'us-central1' }}
+          TF_VAR_zone: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
         run: |
           echo "[$(date)] Applying Terraform configuration for VM..."
           terraform init -input=false
@@ -178,6 +191,11 @@ jobs:
       - name: Terraform Apply - GKE
         if: github.event.inputs.deployment_type == 'gke'
         working-directory: terraform/gke
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION || 'us-central1' }}
+          TF_VAR_zone: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+          TF_VAR_cluster_name: ${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}
         run: |
           echo "[$(date)] Applying Terraform configuration for GKE..."
           terraform init -input=false
@@ -279,6 +297,10 @@ jobs:
       - name: Terraform Destroy - VM
         if: github.event.inputs.deployment_type == 'vm'
         working-directory: terraform
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION || 'us-central1' }}
+          TF_VAR_zone: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
         run: |
           echo "[$(date)] Destroying VM infrastructure..."
           terraform init -input=false
@@ -288,6 +310,11 @@ jobs:
       - name: Terraform Destroy - GKE
         if: github.event.inputs.deployment_type == 'gke'
         working-directory: terraform/gke
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION || 'us-central1' }}
+          TF_VAR_zone: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+          TF_VAR_cluster_name: ${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}
         run: |
           echo "[$(date)] Destroying GKE infrastructure..."
           terraform init -input=false
