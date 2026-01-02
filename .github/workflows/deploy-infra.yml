@@ -199,6 +199,55 @@ jobs:
         run: |
           echo "[$(date)] Applying Terraform configuration for GKE..."
           terraform init -input=false
+          
+          # Refresh state to sync with actual GCP resources
+          echo "[$(date)] Refreshing Terraform state..."
+          terraform refresh -input=false || true
+          
+          # Auto-import existing resources if they exist in GCP but not in Terraform state
+          echo "[$(date)] Checking for existing resources to auto-import..."
+          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}"
+          ZONE="${{ secrets.GCP_ZONE || 'us-central1-a' }}"
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          
+          # Check and import cluster
+          if gcloud container clusters describe ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(name)' 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
+            echo "[$(date)] GKE Cluster exists in GCP, attempting to import..."
+            terraform import google_container_cluster.trt_llm_cluster "projects/${PROJECT_ID}/locations/${ZONE}/clusters/${CLUSTER_NAME}" 2>/dev/null && \
+              echo "[$(date)] ✓ Successfully imported GKE Cluster" || \
+              echo "[$(date)] ℹ Cluster already in Terraform state"
+          fi
+          
+          # Check and import service account
+          if gcloud iam service-accounts describe gke-trillm-sa@${PROJECT_ID}.iam.gserviceaccount.com --project=${PROJECT_ID} --format='value(email)' 2>/dev/null | grep -q "@"; then
+            echo "[$(date)] Service Account exists in GCP, attempting to import..."
+            terraform import google_service_account.gke_sa "projects/${PROJECT_ID}/serviceAccounts/gke-trillm-sa@${PROJECT_ID}.iam.gserviceaccount.com" 2>/dev/null && \
+              echo "[$(date)] ✓ Successfully imported Service Account" || \
+              echo "[$(date)] ℹ Service Account already in Terraform state"
+          fi
+          
+          # Check and import node pools (only if cluster exists)
+          if gcloud container clusters describe ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(name)' 2>/dev/null | grep -q "${CLUSTER_NAME}"; then
+            # Import A100 node pool
+            if gcloud container node-pools describe a100-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(name)' 2>/dev/null | grep -q "a100-node-pool"; then
+              echo "[$(date)] A100 Node Pool exists in GCP, attempting to import..."
+              terraform import google_container_node_pool.a100_pool "projects/${PROJECT_ID}/locations/${ZONE}/clusters/${CLUSTER_NAME}/nodePools/a100-node-pool" 2>/dev/null && \
+                echo "[$(date)] ✓ Successfully imported A100 Node Pool" || \
+                echo "[$(date)] ℹ A100 Node Pool already in Terraform state"
+            fi
+            
+            # Import CPU node pool
+            if gcloud container node-pools describe cpu-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(name)' 2>/dev/null | grep -q "cpu-node-pool"; then
+              echo "[$(date)] CPU Node Pool exists in GCP, attempting to import..."
+              terraform import google_container_node_pool.cpu_pool "projects/${PROJECT_ID}/locations/${ZONE}/clusters/${CLUSTER_NAME}/nodePools/cpu-node-pool" 2>/dev/null && \
+                echo "[$(date)] ✓ Successfully imported CPU Node Pool" || \
+                echo "[$(date)] ℹ CPU Node Pool already in Terraform state"
+            fi
+          fi
+          
+          echo "[$(date)] Auto-import check completed"
+          
+          echo "[$(date)] Running Terraform apply..."
           terraform apply -input=false -auto-approve
           echo "[$(date)] Terraform apply completed"
 

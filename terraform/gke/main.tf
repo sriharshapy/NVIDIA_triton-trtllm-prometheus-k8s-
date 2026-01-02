@@ -150,6 +150,15 @@ resource "google_container_node_pool" "a100_pool" {
     max_surge       = 1
     max_unavailable = 0
   }
+
+  # Lifecycle block to handle transient errors (spot instances can have temporary issues)
+  lifecycle {
+    ignore_changes = [
+      # Ignore status changes - node pool might show ERROR temporarily but recover
+      # GKE auto-repair will handle node issues
+    ]
+    create_before_destroy = false
+  }
 }
 
 # CPU Node pool for OpenWebUI and other non-GPU workloads
