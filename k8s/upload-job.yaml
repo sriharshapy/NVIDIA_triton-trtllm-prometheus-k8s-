@@ -26,7 +26,7 @@ spec:
           echo "  kubectl cp <local-path>/qwen3_8b_trtllm triton-inference/$(hostname):/models/qwen3_8b_trtllm"
           echo "  kubectl cp <local-path>/qwen3_8b triton-inference/$(hostname):/models/qwen3_8b"
           echo "[$(date)] Sleeping for 1 hour..."
-          sleep 3600
+          sleep 4800
         volumeMounts:
         - name: model-storage
           mountPath: /models
