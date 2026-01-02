@@ -22,6 +22,8 @@ resource "google_container_cluster" "trt_llm_cluster" {
 
   # Enable required APIs before creating cluster
   depends_on = [
+    google_project_service.cloudresourcemanager,
+    google_project_service.iam,
     google_project_service.container,
     google_project_service.compute,
   ]
@@ -208,10 +210,12 @@ resource "google_container_node_pool" "cpu_pool" {
   ]
 }
 
-# Service account for GKE
+# Service account for GKE (requires IAM API)
 resource "google_service_account" "gke_sa" {
   account_id   = "gke-trillm-sa"
   display_name = "GKE TRT-LLM Service Account"
+
+  depends_on = [google_project_service.iam]
 }
 
 resource "google_project_iam_member" "gke_sa_logging" {
@@ -232,12 +236,30 @@ resource "google_project_iam_member" "gke_sa_monitoring_viewer" {
   member  = "serviceAccount:${google_service_account.gke_sa.email}"
 }
 
-# Enable required APIs
+# Enable required APIs (must enable Cloud Resource Manager first)
+resource "google_project_service" "cloudresourcemanager" {
+  project = var.project_id
+  service = "cloudresourcemanager.googleapis.com"
+
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "iam" {
+  project = var.project_id
+  service = "iam.googleapis.com"
+
+  disable_on_destroy = false
+
+  depends_on = [google_project_service.cloudresourcemanager]
+}
+
 resource "google_project_service" "container" {
   project = var.project_id
   service = "container.googleapis.com"
 
   disable_on_destroy = false
+
+  depends_on = [google_project_service.cloudresourcemanager]
 }
 
 resource "google_project_service" "compute" {
@@ -245,6 +267,8 @@ resource "google_project_service" "compute" {
   service = "compute.googleapis.com"
 
   disable_on_destroy = false
+
+  depends_on = [google_project_service.cloudresourcemanager]
 }
 
 # Outputs
