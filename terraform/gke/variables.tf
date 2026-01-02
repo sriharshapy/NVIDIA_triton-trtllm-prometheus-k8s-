@@ -10,7 +10,7 @@ variable "region" {
 }
 
 variable "zone" {
-  description = "GCP Zone (must support H100)"
+  description = "GCP Zone (must support A100)"
   type        = string
   default     = "us-central1-a"
 }
@@ -34,19 +34,19 @@ variable "subnetwork" {
 }
 
 variable "node_count" {
-  description = "Initial number of nodes in the H100 node pool"
+  description = "Initial number of nodes in the A100 node pool"
   type        = number
   default     = 1
 }
 
 variable "min_node_count" {
-  description = "Minimum number of nodes in the H100 node pool"
+  description = "Minimum number of nodes in the A100 node pool"
   type        = number
   default     = 0
 }
 
 variable "max_node_count" {
-  description = "Maximum number of nodes in the H100 node pool (restricted to 1 for single GPU deployment)"
+  description = "Maximum number of nodes in the A100 node pool (restricted to 1 for single GPU deployment)"
   type        = number
   default     = 1
   validation {

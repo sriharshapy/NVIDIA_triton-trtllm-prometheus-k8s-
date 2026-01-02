@@ -1,10 +1,10 @@
 # Kubernetes Deployment for Qwen 3 8B
 
-This directory contains Kubernetes manifests for deploying Qwen 3 8B with Triton Inference Server on GKE with H100 GPUs.
+This directory contains Kubernetes manifests for deploying Qwen 3 8B with Triton Inference Server on GKE with A100 GPUs.
 
 ## Prerequisites
 
-1. **Kubernetes Cluster** with H100 GPU nodes
+1. **Kubernetes Cluster** with A100 GPU nodes
    - **GKE**: Built-in GPU support (no GPU operator needed) ✅
    - **Other platforms**: Install GPU Operator (see `GPU_OPERATOR.md`)
 2. **kubectl** configured to connect to your cluster

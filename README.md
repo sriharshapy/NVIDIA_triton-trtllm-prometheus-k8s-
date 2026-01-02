@@ -3,14 +3,14 @@
 This repository contains a minimal deployment setup for **Qwen 3 8B** using:
 - **NVIDIA TRT-LLM** for optimized inference
 - **NVIDIA Triton Inference Server** for serving
-- **Google Cloud Platform (GCP)** with **H100 1g GPU**
-- **Mixed precision**: bfloat16 (bf16) and FP8 quantization
+- **Google Cloud Platform (GCP)** with **A100 40GB GPU**
+- **Precision**: bfloat16 (bf16) - optimized for A100
 
 ## Architecture
 
 ```
 ┌─────────────────┐
-│  GCP H100 1g    │
+│  GCP A100 40GB  │
 │                 │
 │  ┌───────────┐  │
 │  │  Triton   │  │
@@ -26,7 +26,7 @@ This repository contains a minimal deployment setup for **Qwen 3 8B** using:
 
 ## Prerequisites
 
-1. **GCP Account** with H100 quota
+1. **GCP Account** with A100 quota
 2. **Terraform** >= 1.0
 3. **Google Cloud SDK** (gcloud CLI)
 4. **Python 3.8+**
@@ -82,7 +82,7 @@ python3 build_qwen3_8b.py \
 This will:
 - Convert Qwen 3 8B to TRT-LLM format
 - Enable bfloat16 precision
-- Enable FP8 quantization for KV cache
+- Note: FP8 quantization is not supported on A100 (H100 only)
 - Generate optimized inference engine
 
 **Note**: Build takes 30-60 minutes depending on hardware.
@@ -151,7 +151,7 @@ docker-compose up -d
 
 The deployment script will:
 1. Build TRT-LLM model (if model path provided)
-2. Deploy GCP H100 instance/GKE cluster via Terraform
+2. Deploy GCP A100 instance/GKE cluster via Terraform
 3. Upload model files to instance/PVC
 4. Start Triton Inference Server
 
@@ -208,7 +208,7 @@ python3 sh/test_inference.py \
 ### TRT-LLM Build Parameters
 
 - `--dtype`: Base precision (`bfloat16` or `float16`)
-- `--no-fp8`: Disable FP8 quantization (enabled by default)
+- `--no-fp8`: Disable FP8 quantization (disabled by default for A100 compatibility)
 - `--max_batch_size`: Maximum batch size (default: 8)
 - `--max_input_len`: Maximum input length (default: 2048)
 - `--max_output_len`: Maximum output length (default: 2048)
@@ -224,19 +224,20 @@ Edit `triton/model_repository/qwen3_8b/config.pbtxt` to adjust:
 
 Edit `terraform/terraform.tfvars`:
 - `project_id`: Your GCP project ID
-- `zone`: GCP zone with H100 availability
+- `zone`: GCP zone with A100 availability
 - `instance_name`: Instance name
 - `disk_size`: Boot disk size (GB)
 
-## Mixed Precision Details
+## Precision Details
 
 This deployment uses:
-- **bfloat16 (bf16)**: Base precision for compute operations
-- **FP8**: Quantization for KV cache to reduce memory usage
+- **bfloat16 (bf16)**: Base precision for compute operations (optimized for A100)
+
+Note: FP8 quantization is only available on H100 GPUs. A100 uses bfloat16 for optimal performance.
 
 Benefits:
-- Reduced memory footprint
-- Faster inference
+- Good performance on A100 GPUs
+- Efficient memory usage with bfloat16
 - Maintained model quality
 
 ## Logging
@@ -273,9 +274,10 @@ http://<INSTANCE_IP>:8002/metrics
 
 ## Cost Estimation
 
-GCP H100 1g pricing (approximate):
-- **On-demand**: ~$5-7/hour
-- **Preemptible**: ~$1-2/hour (if available)
+GCP A100 40GB pricing (approximate):
+- **On-demand**: ~$3.50-5.00/hour (60-70% cheaper than H100)
+- **Committed Use Discount (1-year)**: ~$2.10-3.00/hour
+- **Committed Use Discount (3-year)**: ~$1.40-2.00/hour
 
 ## Cleanup
 

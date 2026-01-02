@@ -77,9 +77,9 @@ resource "google_container_cluster" "trt_llm_cluster" {
   }
 }
 
-# Node pool for H100 GPUs
-resource "google_container_node_pool" "h100_pool" {
-  name     = "h100-node-pool"
+# Node pool for A100 GPUs
+resource "google_container_node_pool" "a100_pool" {
+  name     = "a100-node-pool"
   location = var.zone
   cluster  = google_container_cluster.trt_llm_cluster.name
 
@@ -94,7 +94,7 @@ resource "google_container_node_pool" "h100_pool" {
 
   autoscaling {
     min_node_count = var.min_node_count
-    max_node_count = var.max_node_count # Restricted to 1 for single H100 GPU deployment
+    max_node_count = var.max_node_count # Restricted to 1 for single A100 GPU deployment
   }
 
   management {
@@ -103,10 +103,13 @@ resource "google_container_node_pool" "h100_pool" {
   }
 
   node_config {
-    machine_type    = "a3-highgpu-1g" # H100 1g instance
+    machine_type    = "a2-highgpu-1g" # A100 40GB instance
     disk_size_gb    = 200
     disk_type       = "pd-ssd"
     service_account = google_service_account.gke_sa.email
+    
+    # Use spot instances for cost savings (60-80% discount)
+    spot = true
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform",
@@ -114,14 +117,14 @@ resource "google_container_node_pool" "h100_pool" {
 
     # GPU configuration
     guest_accelerator {
-      type  = "nvidia-h100-1g"
+      type  = "nvidia-tesla-a100"
       count = 1
     }
 
     # Labels for node selection
     labels = {
-      accelerator = "nvidia-h100-1g"
-      pool        = "h100"
+      accelerator = "nvidia-tesla-a100"
+      pool        = "a100"
     }
 
     # Taints for GPU nodes

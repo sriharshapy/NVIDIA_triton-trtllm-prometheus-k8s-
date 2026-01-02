@@ -2,7 +2,7 @@
 
 ## Prerequisites Checklist
 
-- [ ] GCP account with H100 quota
+- [ ] GCP account with A100 quota
 - [ ] Terraform installed (>= 1.0)
 - [ ] Google Cloud SDK installed
 - [ ] Python 3.8+ installed
@@ -43,7 +43,7 @@ cp terraform.tfvars.example terraform.tfvars
 
 # Edit terraform.tfvars with your settings:
 # - project_id: Your GCP project ID
-# - zone: Zone with H100 availability (e.g., us-central1-a)
+# - zone: Zone with A100 availability (e.g., us-central1-a)
 ```
 
 ### 4. Build TRT-LLM Model
@@ -147,7 +147,7 @@ curl http://$INSTANCE_IP:8002/metrics
 ### Deployment Issues
 
 - **Terraform errors**: Verify GCP credentials and project ID
-- **Instance won't start**: Check H100 quota in selected zone
+- **Instance won't start**: Check A100 quota in selected zone
 - **SSH fails**: Wait 2-3 minutes after instance creation
 
 ### Triton Issues

@@ -1,6 +1,6 @@
 name: "qwen3_8b"
 platform: "tensorrt_llm"
-max_batch_size: 8
+max_batch_size: 4  # Reduced to allow longer sequences while keeping KV cache ~10GB max (with max_input_len=3072, max_output_len=2048)
 default_model_filename: "engine"
 
 parameters {
@@ -41,6 +41,6 @@ instance_group [
 
 dynamic_batching {
   max_queue_delay_microseconds: 100
-  preferred_batch_size: [ 1, 2, 4, 8 ]
+  preferred_batch_size: [ 1, 2, 4 ]  # Updated to match max_batch_size=4
 }
 

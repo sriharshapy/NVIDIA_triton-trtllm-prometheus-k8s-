@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Build Qwen 3 8B model with TRT-LLM using mixed precision (bf16/fp8).
+Build Qwen 3 8B model with TRT-LLM using bfloat16 precision.
 This script converts the Qwen 3 8B model to TensorRT-LLM format.
+Note: FP8 is not supported on A100 GPUs, only on H100.
 """
 
 import os
@@ -26,10 +27,10 @@ def build_qwen3_8b(
     model_path: str,
     output_dir: str,
     dtype: str = "bfloat16",
-    use_fp8: bool = True,
-    max_batch_size: int = 8,
-    max_input_len: int = 2048,
-    max_output_len: int = 2048
+    use_fp8: bool = False,
+    max_batch_size: int = 4,  # Reduced to allow longer sequences while keeping KV cache ~10GB
+    max_input_len: int = 3072,  # Increased: allows longer context with batch_size=4
+    max_output_len: int = 2048  # Increased: allows longer outputs with batch_size=4
 ):
     """
     Build Qwen 3 8B model with TRT-LLM.
@@ -38,7 +39,7 @@ def build_qwen3_8b(
         model_path: Path to the Qwen 3 8B model (HuggingFace format)
         output_dir: Output directory for the compiled model
         dtype: Base data type (bfloat16 or float16)
-        use_fp8: Enable FP8 quantization for KV cache
+        use_fp8: Enable FP8 quantization for KV cache (H100 only, not supported on A100)
         max_batch_size: Maximum batch size
         max_input_len: Maximum input sequence length
         max_output_len: Maximum output sequence length
@@ -53,6 +54,16 @@ def build_qwen3_8b(
     logger.info(f"Max batch size: {max_batch_size}")
     logger.info(f"Max input length: {max_input_len}")
     logger.info(f"Max output length: {max_output_len}")
+    
+    # Calculate estimated KV cache size
+    # For Qwen 3 8B: ~32 layers, 4096 hidden, bf16 (2 bytes)
+    # KV cache per token = layers × hidden × 2 (K+V) × 2 bytes
+    kv_cache_per_token = 32 * 4096 * 2 * 2  # ~524KB per token
+    max_total_tokens = (max_input_len + max_output_len) * max_batch_size
+    estimated_kv_cache_gb = (kv_cache_per_token * max_total_tokens) / (1024**3)
+    logger.info(f"Estimated KV cache size (worst case): ~{estimated_kv_cache_gb:.2f}GB")
+    if estimated_kv_cache_gb > 10:
+        logger.warning(f"KV cache exceeds 10GB limit! Consider reducing batch size or sequence lengths.")
     
     # Ensure output directory exists
     output_path = Path(output_dir)
@@ -75,13 +86,15 @@ def build_qwen3_8b(
         "--builder_opt", "0",
     ]
     
-    # Add FP8 quantization if enabled
+    # Add FP8 quantization if enabled (H100 only - not supported on A100)
     if use_fp8:
-        logger.info("Enabling FP8 quantization for KV cache")
-        cmd_parts.extend([
-            "--enable_fp8",
-            "--fp8_kv_cache",
-        ])
+        logger.warning("FP8 quantization requested, but only supported on H100 GPUs")
+        logger.warning("Skipping FP8 flags - using bfloat16 instead")
+        # Note: FP8 is not supported on A100, so we skip these flags
+        # cmd_parts.extend([
+        #     "--enable_fp8",
+        #     "--fp8_kv_cache",
+        # ])
     
     # Add model-specific parameters for Qwen
     cmd_parts.extend([
@@ -149,20 +162,20 @@ def main():
     parser.add_argument(
         "--max_batch_size",
         type=int,
-        default=8,
-        help="Maximum batch size"
+        default=4,
+        help="Maximum batch size (reduced to allow longer sequences while keeping KV cache ~10GB)"
     )
     parser.add_argument(
         "--max_input_len",
         type=int,
-        default=2048,
-        help="Maximum input sequence length"
+        default=3072,
+        help="Maximum input sequence length (increased with batch_size=4 to keep KV cache ~10GB max)"
     )
     parser.add_argument(
         "--max_output_len",
         type=int,
         default=2048,
-        help="Maximum output sequence length"
+        help="Maximum output sequence length (increased with batch_size=4 to keep KV cache ~10GB max)"
     )
     
     args = parser.parse_args()
