@@ -1,0 +1,128 @@
+name: CI - Lint and Validate
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  validate-terraform:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Terraform Format Check - VM
+        working-directory: terraform
+        run: |
+          echo "[$(date)] Checking Terraform format for VM..."
+          terraform fmt -check -recursive
+          echo "[$(date)] Format check completed"
+
+      - name: Terraform Validate - VM
+        working-directory: terraform
+        run: |
+          echo "[$(date)] Validating Terraform configuration for VM..."
+          terraform init -backend=false
+          terraform validate
+          echo "[$(date)] Validation completed"
+
+      - name: Terraform Format Check - GKE
+        working-directory: terraform/gke
+        run: |
+          echo "[$(date)] Checking Terraform format for GKE..."
+          terraform fmt -check -recursive
+          echo "[$(date)] Format check completed"
+
+      - name: Terraform Validate - GKE
+        working-directory: terraform/gke
+        run: |
+          echo "[$(date)] Validating Terraform configuration for GKE..."
+          terraform init -backend=false
+          terraform validate
+          echo "[$(date)] Validation completed"
+
+  validate-k8s:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Validate K8s manifests
+        run: |
+          echo "[$(date)] Validating Kubernetes manifests..."
+          for file in k8s/*.yaml; do
+            if [ -f "$file" ]; then
+              echo "[$(date)] Validating $file..."
+              kubectl apply --dry-run=client -f "$file" || exit 1
+            fi
+          done
+          echo "[$(date)] All manifests validated successfully"
+
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install flake8 black
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          echo "[$(date)] Running flake8..."
+          flake8 trt-llm/*.py sh/*.py --max-line-length=120 --ignore=E501,W503 || true
+          echo "[$(date)] Linting completed"
+
+      - name: Check formatting with black
+        run: |
+          echo "[$(date)] Checking code formatting..."
+          black --check trt-llm/*.py sh/*.py || true
+          echo "[$(date)] Format check completed"
+
+  validate-scripts:
+    name: Validate Shell Scripts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Validate shell scripts
+        run: |
+          echo "[$(date)] Validating shell scripts..."
+          find . -name "*.sh" -type f | while read script; do
+            echo "[$(date)] Checking $script..."
+            shellcheck "$script" || true
+          done
+          echo "[$(date)] Script validation completed"
+

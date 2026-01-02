@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: triton-qwen3-8b-ingress
+  namespace: triton-inference
+  labels:
+    app: qwen3-8b
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "triton-qwen3-8b-ip"  # Optional: reserved IP
+    networking.gke.io/managed-certificates: "triton-qwen3-8b-cert"  # Optional: SSL
+spec:
+  rules:
+  - host: triton.example.com  # Change to your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: triton-qwen3-8b
+            port:
+              number: 8000
+
+---
+# Optional: ManagedCertificate for SSL
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: triton-qwen3-8b-cert
+  namespace: triton-inference
+spec:
+  domains:
+    - triton.example.com  # Change to your domain
+

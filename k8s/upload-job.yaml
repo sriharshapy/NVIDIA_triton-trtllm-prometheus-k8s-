@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-upload
+  namespace: triton-inference
+  labels:
+    app: qwen3-8b
+    component: model-upload
+spec:
+  template:
+    metadata:
+      labels:
+        app: qwen3-8b
+        component: model-upload
+    spec:
+      containers:
+      - name: upload
+        image: busybox:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "[$(date)] Model upload job started"
+          echo "[$(date)] Waiting for manual file upload..."
+          echo "[$(date)] Use 'kubectl cp' to copy files to this pod"
+          echo "[$(date)] Example:"
+          echo "  kubectl cp <local-path>/qwen3_8b_trtllm triton-inference/$(hostname):/models/qwen3_8b_trtllm"
+          echo "  kubectl cp <local-path>/qwen3_8b triton-inference/$(hostname):/models/qwen3_8b"
+          echo "[$(date)] Sleeping for 1 hour..."
+          sleep 3600
+        volumeMounts:
+        - name: model-storage
+          mountPath: /models
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage
+      restartPolicy: Never
+  backoffLimit: 0  # Don't retry on failure
+

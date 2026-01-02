@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: triton-inference
+  labels:
+    name: triton-inference
+    app: qwen3-8b
+

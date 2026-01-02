@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triton-config
+  namespace: triton-inference
+  labels:
+    app: qwen3-8b
+data:
+  MODEL_REPO: "/models"
+  HTTP_PORT: "8000"
+  GRPC_PORT: "8001"
+  METRICS_PORT: "8002"
+  LOG_VERBOSE: "1"
+  LOG_INFO: "true"
+  LOG_WARNING: "true"
+  LOG_ERROR: "true"
+

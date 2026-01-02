@@ -1,0 +1,279 @@
+name: Deploy GCP Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Deployment type'
+        required: true
+        type: choice
+        options:
+          - vm
+          - gke
+        default: 'gke'
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/deploy-infra.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/deploy-infra.yml'
+
+env:
+  GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+  GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+  GOOGLE_REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  GOOGLE_ZONE: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Terraform Init - VM
+        if: github.event.inputs.deployment_type == 'vm' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, 'vm'))
+        working-directory: terraform
+        run: |
+          echo "[$(date)] Initializing Terraform for VM deployment..."
+          terraform init -input=false
+          echo "[$(date)] Terraform initialization completed"
+
+      - name: Terraform Plan - VM
+        if: github.event.inputs.deployment_type == 'vm' || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, 'vm'))
+        working-directory: terraform
+        run: |
+          echo "[$(date)] Running Terraform plan for VM deployment..."
+          terraform plan -input=false -out=tfplan
+          echo "[$(date)] Terraform plan completed"
+
+      - name: Terraform Init - GKE
+        if: github.event.inputs.deployment_type == 'gke' || (github.event_name == 'pull_request' && !contains(github.event.pull_request.title, 'vm'))
+        working-directory: terraform/gke
+        run: |
+          echo "[$(date)] Initializing Terraform for GKE deployment..."
+          terraform init -input=false
+          echo "[$(date)] Terraform initialization completed"
+
+      - name: Terraform Plan - GKE
+        if: github.event.inputs.deployment_type == 'gke' || (github.event_name == 'pull_request' && !contains(github.event.pull_request.title, 'vm'))
+        working-directory: terraform/gke
+        run: |
+          echo "[$(date)] Running Terraform plan for GKE deployment..."
+          terraform plan -input=false -out=tfplan
+          echo "[$(date)] Terraform plan completed"
+
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan 🤖
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*
+            
+            Terraform plan completed successfully for **${{ github.event.inputs.deployment_type || 'gke' }}** deployment.
+            
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`
+            Plan completed - check logs for details
+            \`\`\`
+            
+            </details>
+            
+            *Workflow: \`${{ github.workflow }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+    environment:
+      name: production
+      url: ${{ steps.get-outputs.outputs.instance_ip || steps.get-outputs.outputs.cluster_endpoint }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Terraform Apply - VM
+        if: github.event.inputs.deployment_type == 'vm'
+        working-directory: terraform
+        run: |
+          echo "[$(date)] Applying Terraform configuration for VM..."
+          terraform init -input=false
+          terraform apply -input=false -auto-approve
+          echo "[$(date)] Terraform apply completed"
+
+      - name: Get VM Outputs
+        if: github.event.inputs.deployment_type == 'vm'
+        id: get-outputs
+        working-directory: terraform
+        run: |
+          INSTANCE_IP=$(terraform output -raw instance_ip)
+          INSTANCE_ZONE=$(terraform output -raw instance_zone)
+          echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
+          echo "instance_zone=$INSTANCE_ZONE" >> $GITHUB_OUTPUT
+          echo "[$(date)] Instance IP: $INSTANCE_IP"
+          echo "[$(date)] Instance Zone: $INSTANCE_ZONE"
+
+      - name: Terraform Apply - GKE
+        if: github.event.inputs.deployment_type == 'gke'
+        working-directory: terraform/gke
+        run: |
+          echo "[$(date)] Applying Terraform configuration for GKE..."
+          terraform init -input=false
+          terraform apply -input=false -auto-approve
+          echo "[$(date)] Terraform apply completed"
+
+      - name: Get GKE Outputs
+        if: github.event.inputs.deployment_type == 'gke'
+        id: get-outputs
+        working-directory: terraform/gke
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          CLUSTER_ENDPOINT=$(terraform output -raw cluster_endpoint)
+          CLUSTER_LOCATION=$(terraform output -raw cluster_location)
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "cluster_endpoint=$CLUSTER_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "cluster_location=$CLUSTER_LOCATION" >> $GITHUB_OUTPUT
+          echo "[$(date)] Cluster Name: $CLUSTER_NAME"
+          echo "[$(date)] Cluster Endpoint: $CLUSTER_ENDPOINT"
+          echo "[$(date)] Cluster Location: $CLUSTER_LOCATION"
+
+      - name: Configure kubectl for GKE
+        if: github.event.inputs.deployment_type == 'gke'
+        run: |
+          echo "[$(date)] Configuring kubectl for GKE cluster..."
+          gcloud container clusters get-credentials \
+            ${{ steps.get-outputs.outputs.cluster_name }} \
+            --zone ${{ steps.get-outputs.outputs.cluster_location }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+          echo "[$(date)] kubectl configured successfully"
+
+      - name: Create Summary
+        run: |
+          echo "## 🚀 Infrastructure Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.deployment_type }}" == "vm" ]; then
+            echo "**Deployment Type:** VM (Compute Engine)" >> $GITHUB_STEP_SUMMARY
+            echo "**Instance IP:** ${{ steps.get-outputs.outputs.instance_ip }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Instance Zone:** ${{ steps.get-outputs.outputs.instance_zone }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. Upload model files to the instance" >> $GITHUB_STEP_SUMMARY
+            echo "2. SSH to the instance and start Triton server" >> $GITHUB_STEP_SUMMARY
+            echo "3. Test inference endpoint" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Deployment Type:** GKE (Kubernetes)" >> $GITHUB_STEP_SUMMARY
+            echo "**Cluster Name:** ${{ steps.get-outputs.outputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Cluster Endpoint:** ${{ steps.get-outputs.outputs.cluster_endpoint }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Cluster Location:** ${{ steps.get-outputs.outputs.cluster_location }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. Deploy Triton to Kubernetes (see k8s/deploy.sh)" >> $GITHUB_STEP_SUMMARY
+            echo "2. Upload model files to PVC" >> $GITHUB_STEP_SUMMARY
+            echo "3. Test inference endpoint" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment:
+      name: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Terraform Destroy - VM
+        if: github.event.inputs.deployment_type == 'vm'
+        working-directory: terraform
+        run: |
+          echo "[$(date)] Destroying VM infrastructure..."
+          terraform init -input=false
+          terraform destroy -input=false -auto-approve
+          echo "[$(date)] VM infrastructure destroyed"
+
+      - name: Terraform Destroy - GKE
+        if: github.event.inputs.deployment_type == 'gke'
+        working-directory: terraform/gke
+        run: |
+          echo "[$(date)] Destroying GKE infrastructure..."
+          terraform init -input=false
+          terraform destroy -input=false -auto-approve
+          echo "[$(date)] GKE infrastructure destroyed"
+
+      - name: Create Summary
+        run: |
+          echo "## 🗑️ Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployment Type:** ${{ github.event.inputs.deployment_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** All resources have been destroyed" >> $GITHUB_STEP_SUMMARY
+

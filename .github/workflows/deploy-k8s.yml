@@ -1,0 +1,189 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - deploy
+          - undeploy
+        default: 'deploy'
+  push:
+    branches:
+      - main
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/deploy-k8s.yml'
+
+env:
+  GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+  GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+  GOOGLE_REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  GOOGLE_ZONE: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+  CLUSTER_NAME: ${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}
+
+jobs:
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy'
+    environment:
+      name: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure kubectl
+        run: |
+          echo "[$(date)] Configuring kubectl for GKE cluster..."
+          gcloud container clusters get-credentials \
+            ${{ env.CLUSTER_NAME }} \
+            --zone ${{ env.GOOGLE_ZONE }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+          echo "[$(date)] kubectl configured successfully"
+
+      - name: Verify GPU support
+        run: |
+          echo "[$(date)] Verifying GPU support in cluster..."
+          kubectl get nodes -o json | jq -r '.items[] | select(.status.allocatable."nvidia.com/gpu" != null) | "✓ \(.metadata.name): \(.status.allocatable."nvidia.com/gpu") GPU(s)"' || echo "⚠ No GPU nodes found"
+          echo "[$(date)] GPU verification completed"
+
+      - name: Create namespace
+        run: |
+          echo "[$(date)] Creating namespace..."
+          kubectl apply -f k8s/namespace.yaml
+          echo "[$(date)] Namespace created"
+
+      - name: Create ConfigMap
+        run: |
+          echo "[$(date)] Creating ConfigMap..."
+          kubectl apply -f k8s/configmap.yaml
+          echo "[$(date)] ConfigMap created"
+
+      - name: Create PVC
+        run: |
+          echo "[$(date)] Creating PersistentVolumeClaim..."
+          kubectl apply -f k8s/pvc.yaml
+          echo "[$(date)] Waiting for PVC to be bound..."
+          timeout=300
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if kubectl get pvc model-storage -n triton-inference -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Bound; then
+              echo "[$(date)] ✓ PVC is bound"
+              break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+            echo "[$(date)] Waiting for PVC... (${elapsed}s/${timeout}s)"
+          done
+
+      - name: Deploy Triton
+        run: |
+          echo "[$(date)] Deploying Triton Inference Server..."
+          kubectl apply -f k8s/deployment.yaml
+          echo "[$(date)] Deployment created"
+
+      - name: Create Services
+        run: |
+          echo "[$(date)] Creating Services..."
+          kubectl apply -f k8s/service.yaml
+          echo "[$(date)] Services created"
+
+      - name: Wait for deployment
+        run: |
+          echo "[$(date)] Waiting for deployment to be ready..."
+          kubectl wait --for=condition=available \
+            --timeout=600s \
+            deployment/triton-qwen3-8b \
+            -n triton-inference || echo "⚠ Deployment not ready within timeout"
+          echo "[$(date)] Deployment status check completed"
+
+      - name: Get service endpoints
+        id: get-endpoints
+        run: |
+          echo "[$(date)] Getting service endpoints..."
+          sleep 10
+          EXTERNAL_IP=$(kubectl get service triton-qwen3-8b -n triton-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          echo "external_ip=$EXTERNAL_IP" >> $GITHUB_OUTPUT
+          echo "[$(date)] External IP: $EXTERNAL_IP"
+
+      - name: Get pod status
+        run: |
+          echo "[$(date)] Pod status:"
+          kubectl get pods -n triton-inference -l app=qwen3-8b
+          echo ""
+          echo "[$(date)] Service status:"
+          kubectl get svc -n triton-inference
+
+      - name: Create Summary
+        run: |
+          echo "## 🚀 Kubernetes Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ env.CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Namespace:** triton-inference" >> $GITHUB_STEP_SUMMARY
+          echo "**External IP:** ${{ steps.get-endpoints.outputs.external_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "- HTTP: http://${{ steps.get-endpoints.outputs.external_ip }}:8000" >> $GITHUB_STEP_SUMMARY
+          echo "- gRPC: ${{ steps.get-endpoints.outputs.external_ip }}:8001" >> $GITHUB_STEP_SUMMARY
+          echo "- Metrics: http://${{ steps.get-endpoints.outputs.external_ip }}:8002/metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Upload model files to PVC (see k8s/README.md)" >> $GITHUB_STEP_SUMMARY
+          echo "2. Test inference endpoint" >> $GITHUB_STEP_SUMMARY
+
+  undeploy:
+    name: Undeploy from Kubernetes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'undeploy'
+    environment:
+      name: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure kubectl
+        run: |
+          echo "[$(date)] Configuring kubectl for GKE cluster..."
+          gcloud container clusters get-credentials \
+            ${{ env.CLUSTER_NAME }} \
+            --zone ${{ env.GOOGLE_ZONE }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Undeploy resources
+        run: |
+          echo "[$(date)] Undeploying Kubernetes resources..."
+          kubectl delete -f k8s/service.yaml --ignore-not-found=true
+          kubectl delete -f k8s/deployment.yaml --ignore-not-found=true
+          kubectl delete -f k8s/pvc.yaml --ignore-not-found=true
+          kubectl delete -f k8s/configmap.yaml --ignore-not-found=true
+          kubectl delete -f k8s/namespace.yaml --ignore-not-found=true
+          echo "[$(date)] Undeployment completed"
+
+      - name: Create Summary
+        run: |
+          echo "## 🗑️ Kubernetes Resources Removed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All Triton resources have been removed from the cluster." >> $GITHUB_STEP_SUMMARY
+

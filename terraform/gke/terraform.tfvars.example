@@ -1,0 +1,10 @@
+project_id    = "your-gcp-project-id"
+region        = "us-central1"
+zone          = "us-central1-a"
+cluster_name  = "trt-llm-cluster"
+network       = "default"
+subnetwork    = "default"
+node_count    = 1
+min_node_count = 0
+max_node_count = 3
+

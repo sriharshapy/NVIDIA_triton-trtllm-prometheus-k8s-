@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage
+  namespace: triton-inference
+  labels:
+    app: qwen3-8b
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-rwo  # GCP SSD persistent disk
+  resources:
+    requests:
+      storage: 500Gi  # Adjust based on model size
+  volumeMode: Filesystem
+

@@ -1,0 +1,7 @@
+project_id    = "your-gcp-project-id"
+region        = "us-central1"
+zone          = "us-central1-a"
+instance_name = "qwen3-8b-h100"
+image         = "projects/nvidia-ngc-public/global/images/nvidia-tensorrt-llm-release-v0-12-0"
+disk_size     = 200
+

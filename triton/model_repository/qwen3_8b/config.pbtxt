@@ -1,0 +1,46 @@
+name: "qwen3_8b"
+platform: "tensorrt_llm"
+max_batch_size: 8
+default_model_filename: "engine"
+
+parameters {
+  key: "gpt_model_type"
+  value: {
+    string_value: "qwen"
+  }
+}
+
+parameters {
+  key: "gpt_model_path"
+  value: {
+    string_value: "/models/qwen3_8b_trtllm"
+  }
+}
+
+parameters {
+  key: "tokenizer_path"
+  value: {
+    string_value: "/models/qwen3_8b"
+  }
+}
+
+parameters {
+  key: "tokenizer_type"
+  value: {
+    string_value: "auto"
+  }
+}
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+
+dynamic_batching {
+  max_queue_delay_microseconds: 100
+  preferred_batch_size: [ 1, 2, 4, 8 ]
+}
+

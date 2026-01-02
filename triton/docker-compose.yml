@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  triton:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: triton-qwen3-8b:latest
+    container_name: triton-qwen3-8b
+    ports:
+      - "8000:8000"  # HTTP
+      - "8001:8001"  # gRPC
+      - "8002:8002"  # Metrics
+    volumes:
+      - ./model_repository:/models:ro
+      - ./logs:/opt/triton/logs
+      - /path/to/qwen3_8b_trtllm:/models/qwen3_8b_trtllm:ro
+      - /path/to/qwen3_8b:/models/qwen3_8b:ro
+    environment:
+      - MODEL_REPO=/models
+      - HTTP_PORT=8000
+      - GRPC_PORT=8001
+      - METRICS_PORT=8002
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

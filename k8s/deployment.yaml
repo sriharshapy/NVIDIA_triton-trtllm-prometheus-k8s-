@@ -1,0 +1,181 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-qwen3-8b
+  namespace: triton-inference
+  labels:
+    app: qwen3-8b
+    component: triton-server
+spec:
+  replicas: 1  # Single replica for H100 1g
+  selector:
+    matchLabels:
+      app: qwen3-8b
+      component: triton-server
+  template:
+    metadata:
+      labels:
+        app: qwen3-8b
+        component: triton-server
+    spec:
+      # Node selector for H100 GPU nodes
+      nodeSelector:
+        # For GKE (built-in GPU support)
+        cloud.google.com/gke-accelerator: nvidia-h100-1g
+        # For GPU Operator or other platforms, use:
+        # accelerator: nvidia-h100-1g
+        # Or remove nodeSelector to use any GPU node
+      
+      # Tolerations for GPU nodes (if using taints)
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      
+      containers:
+      - name: triton-server
+        image: nvcr.io/nvidia/tritonserver:24.12-trtllm-python-py3
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: grpc
+          containerPort: 8001
+          protocol: TCP
+        - name: metrics
+          containerPort: 8002
+          protocol: TCP
+        
+        env:
+        - name: MODEL_REPO
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: MODEL_REPO
+        - name: HTTP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: HTTP_PORT
+        - name: GRPC_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: GRPC_PORT
+        - name: METRICS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: METRICS_PORT
+        - name: LOG_VERBOSE
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: LOG_VERBOSE
+        - name: LOG_INFO
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: LOG_INFO
+        - name: LOG_WARNING
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: LOG_WARNING
+        - name: LOG_ERROR
+          valueFrom:
+            configMapKeyRef:
+              name: triton-config
+              key: LOG_ERROR
+        
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "[$(date)] Starting Triton Inference Server"
+          echo "[$(date)] Model repository: $MODEL_REPO"
+          echo "[$(date)] HTTP port: $HTTP_PORT"
+          echo "[$(date)] gRPC port: $GRPC_PORT"
+          echo "[$(date)] Metrics port: $METRICS_PORT"
+          
+          # Verify model repository
+          if [ ! -d "$MODEL_REPO" ]; then
+            echo "[$(date)] ERROR: Model repository not found: $MODEL_REPO"
+            exit 1
+          fi
+          
+          # List models
+          echo "[$(date)] Available models:"
+          ls -la $MODEL_REPO || true
+          
+          # Start Triton
+          exec tritonserver \
+            --model-repository=$MODEL_REPO \
+            --http-port=$HTTP_PORT \
+            --grpc-port=$GRPC_PORT \
+            --metrics-port=$METRICS_PORT \
+            --log-verbose=$LOG_VERBOSE \
+            --log-info=$LOG_INFO \
+            --log-warning=$LOG_WARNING \
+            --log-error=$LOG_ERROR \
+            --exit-on-error=false
+        
+        volumeMounts:
+        - name: model-storage
+          mountPath: /models
+          readOnly: false
+        - name: logs
+          mountPath: /opt/triton/logs
+        
+        resources:
+          requests:
+            nvidia.com/gpu: 1
+            memory: "32Gi"
+            cpu: "8"
+          limits:
+            nvidia.com/gpu: 1
+            memory: "64Gi"
+            cpu: "16"
+        
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: http
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Logging configuration
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "echo '[$(date)] Graceful shutdown initiated'"]
+      
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage
+      - name: logs
+        emptyDir: {}
+      
+      restartPolicy: Always
+      
+      # Security context
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        fsGroup: 0
+

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: triton-inference
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  # - ingress.yaml  # Uncomment if using ingress
+
+commonLabels:
+  app: qwen3-8b
+  managed-by: kustomize
+
+images:
+  - name: nvcr.io/nvidia/tritonserver
+    newTag: 24.12-trtllm-python-py3
+
