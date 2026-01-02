@@ -3,6 +3,9 @@
 logs/
 *.log.*
 
+
+github-actions-key.json
+
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl
