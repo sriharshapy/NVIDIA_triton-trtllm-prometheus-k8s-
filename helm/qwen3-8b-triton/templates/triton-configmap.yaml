@@ -1,0 +1,19 @@
+{{- if .Values.triton.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triton-config
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.triton.labels" . | nindent 4 }}
+data:
+  MODEL_REPO: {{ .Values.triton.config.modelRepo | quote }}
+  HTTP_PORT: {{ .Values.triton.config.httpPort | quote }}
+  GRPC_PORT: {{ .Values.triton.config.grpcPort | quote }}
+  METRICS_PORT: {{ .Values.triton.config.metricsPort | quote }}
+  LOG_VERBOSE: {{ .Values.triton.config.logVerbose | quote }}
+  LOG_INFO: {{ .Values.triton.config.logInfo | quote }}
+  LOG_WARNING: {{ .Values.triton.config.logWarning | quote }}
+  LOG_ERROR: {{ .Values.triton.config.logError | quote }}
+{{- end }}
+

@@ -1,0 +1,45 @@
+{{- if .Values.openwebui.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.openwebui.name }}
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.openwebui.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.openwebui.service.type }}
+  ports:
+  - name: http
+    port: {{ .Values.openwebui.service.port }}
+    targetPort: http
+    protocol: TCP
+  selector:
+    {{- include "qwen3-8b-triton.openwebui.selectorLabels" . | nindent 4 }}
+  {{- if eq .Values.openwebui.service.type "LoadBalancer" }}
+  sessionAffinity: {{ .Values.openwebui.service.sessionAffinity }}
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: {{ .Values.openwebui.service.sessionAffinityTimeout }}
+  {{- end }}
+---
+{{- if .Values.openwebui.service.internal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.openwebui.name }}-internal
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.openwebui.labels" . | nindent 4 }}
+    type: internal
+spec:
+  type: {{ .Values.openwebui.service.internal.type }}
+  ports:
+  - name: http
+    port: {{ .Values.openwebui.service.internal.port }}
+    targetPort: http
+    protocol: TCP
+  selector:
+    {{- include "qwen3-8b-triton.openwebui.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- end }}
+

@@ -1,0 +1,87 @@
+{{- if .Values.openwebui.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.openwebui.name }}
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.openwebui.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.openwebui.replicas }}
+  selector:
+    matchLabels:
+      {{- include "qwen3-8b-triton.openwebui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qwen3-8b-triton.openwebui.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.openwebui.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openwebui.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: openwebui
+        image: {{ .Values.openwebui.image.repository }}:{{ .Values.openwebui.image.tag }}
+        imagePullPolicy: {{ .Values.openwebui.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: WEBUI_NAME
+          value: {{ .Values.openwebui.config.webuiName | quote }}
+        - name: WEBUI_URL
+          value: {{ .Values.openwebui.config.webuiUrl | quote }}
+        - name: OPENAI_API_BASE_URL
+          value: {{ .Values.openwebui.config.openaiApiBaseUrl | quote }}
+        - name: OPENAI_API_KEY
+          value: {{ .Values.openwebui.config.openaiApiKey | quote }}
+        - name: DEFAULT_MODEL
+          value: {{ .Values.openwebui.config.defaultModel | quote }}
+        - name: DEFAULT_MODELS
+          value: {{ .Values.openwebui.config.defaultModels | quote }}
+        - name: ENABLE_SIGNUP
+          value: {{ .Values.openwebui.config.enableSignup | quote }}
+        - name: ENABLE_COMMUNITY_SHARING
+          value: {{ .Values.openwebui.config.enableCommunitySharing | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.openwebui.config.logLevel | quote }}
+        {{- if .Values.openwebui.storage.enabled }}
+        volumeMounts:
+        - name: data
+          mountPath: /app/backend/data
+        {{- end }}
+        {{- with .Values.openwebui.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: {{ .Values.openwebui.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.openwebui.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.openwebui.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.openwebui.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: {{ .Values.openwebui.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.openwebui.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.openwebui.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.openwebui.readinessProbe.failureThreshold }}
+      volumes:
+      {{- if .Values.openwebui.storage.enabled }}
+      - name: data
+        persistentVolumeClaim:
+          claimName: openwebui-data
+      {{- end }}
+      restartPolicy: Always
+{{- end }}
+

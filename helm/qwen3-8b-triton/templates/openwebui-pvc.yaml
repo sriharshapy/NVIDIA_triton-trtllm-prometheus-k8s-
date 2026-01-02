@@ -1,0 +1,18 @@
+{{- if and .Values.openwebui.enabled .Values.openwebui.storage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.openwebui.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.openwebui.storage.accessMode }}
+  storageClassName: {{ .Values.openwebui.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.openwebui.storage.size }}
+  volumeMode: Filesystem
+{{- end }}
+

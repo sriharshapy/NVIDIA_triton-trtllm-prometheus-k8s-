@@ -1,0 +1,84 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.prometheus.name }}
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.prometheus.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.prometheus.replicas }}
+  selector:
+    matchLabels:
+      {{- include "qwen3-8b-triton.prometheus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qwen3-8b-triton.prometheus.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.prometheus.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.prometheus.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: prometheus
+        image: {{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}
+        imagePullPolicy: {{ .Values.prometheus.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.prometheus.service.port }}
+          protocol: TCP
+        args:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--storage.tsdb.retention.time={{ .Values.prometheus.config.retentionTime }}'
+        - '--storage.tsdb.retention.size={{ .Values.prometheus.config.retentionSize }}'
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+        - '--web.console.templates=/usr/share/prometheus/consoles'
+        - '--web.enable-lifecycle'
+        - '--storage.tsdb.wal-compression'
+        - '--query.max-concurrency=20'
+        - '--query.max-samples=50000000'
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        {{- if .Values.prometheus.storage.enabled }}
+        - name: prometheus-storage
+          mountPath: /prometheus
+        {{- end }}
+        {{- with .Values.prometheus.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: {{ .Values.prometheus.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.prometheus.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.prometheus.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.prometheus.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: {{ .Values.prometheus.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.prometheus.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.prometheus.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.prometheus.readinessProbe.failureThreshold }}
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      {{- if .Values.prometheus.storage.enabled }}
+      - name: prometheus-storage
+        persistentVolumeClaim:
+          claimName: prometheus-storage
+      {{- end }}
+      restartPolicy: Always
+{{- end }}
+

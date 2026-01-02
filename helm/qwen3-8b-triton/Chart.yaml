@@ -1,0 +1,17 @@
+apiVersion: v2
+name: qwen3-8b-triton
+description: Qwen 3 8B deployment with Triton Inference Server, OpenWebUI, and Prometheus
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - triton
+  - trt-llm
+  - qwen
+  - llm
+  - inference
+  - openwebui
+  - prometheus
+maintainers:
+  - name: TRT-LLM Team
+

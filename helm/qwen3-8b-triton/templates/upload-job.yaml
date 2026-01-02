@@ -1,0 +1,45 @@
+{{- if .Values.uploadJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-upload
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.triton.labels" . | nindent 4 }}
+    component: model-upload
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "qwen3-8b-triton.triton.selectorLabels" . | nindent 8 }}
+        component: model-upload
+    spec:
+      containers:
+      - name: upload
+        image: busybox:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "[$(date)] Model upload job started"
+          echo "[$(date)] Waiting for manual file upload..."
+          echo "[$(date)] Use 'kubectl cp' to copy files to this pod"
+          echo "[$(date)] Example:"
+          echo "  kubectl cp <local-path>/qwen3_8b_trtllm {{ include "qwen3-8b-triton.namespace" . }}/$(hostname):/models/qwen3_8b_trtllm"
+          echo "  kubectl cp <local-path>/qwen3_8b {{ include "qwen3-8b-triton.namespace" . }}/$(hostname):/models/qwen3_8b"
+          echo "[$(date)] Sleeping for {{ .Values.uploadJob.sleepDuration }}..."
+          sleep {{ .Values.uploadJob.sleepDuration }}
+        {{- if .Values.triton.storage.enabled }}
+        volumeMounts:
+        - name: model-storage
+          mountPath: /models
+        {{- end }}
+      volumes:
+      {{- if .Values.triton.storage.enabled }}
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage
+      {{- end }}
+      restartPolicy: Never
+  backoffLimit: 0
+{{- end }}
+

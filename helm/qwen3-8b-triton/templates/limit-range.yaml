@@ -1,0 +1,26 @@
+{{- if .Values.limitRange.enabled }}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: triton-inference-limits
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.labels" . | nindent 4 }}
+spec:
+  limits:
+  - default:
+      cpu: {{ .Values.limitRange.default.cpu | quote }}
+      memory: {{ .Values.limitRange.default.memory | quote }}
+    defaultRequest:
+      cpu: {{ .Values.limitRange.defaultRequest.cpu | quote }}
+      memory: {{ .Values.limitRange.defaultRequest.memory | quote }}
+    type: Container
+  - max:
+      cpu: {{ .Values.limitRange.max.cpu | quote }}
+      memory: {{ .Values.limitRange.max.memory | quote }}
+    min:
+      cpu: {{ .Values.limitRange.min.cpu | quote }}
+      memory: {{ .Values.limitRange.min.memory | quote }}
+    type: Container
+{{- end }}
+

@@ -1,0 +1,61 @@
+{{- if .Values.triton.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.triton.name }}
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.triton.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.triton.service.type }}
+  ports:
+  - name: http
+    port: {{ .Values.triton.service.httpPort }}
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: {{ .Values.triton.service.grpcPort }}
+    targetPort: grpc
+    protocol: TCP
+  - name: metrics
+    port: {{ .Values.triton.service.metricsPort }}
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    {{- include "qwen3-8b-triton.triton.selectorLabels" . | nindent 4 }}
+  {{- if eq .Values.triton.service.type "LoadBalancer" }}
+  sessionAffinity: {{ .Values.triton.service.sessionAffinity }}
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: {{ .Values.triton.service.sessionAffinityTimeout }}
+  {{- end }}
+---
+{{- if .Values.triton.service.internal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.triton.name }}-internal
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.triton.labels" . | nindent 4 }}
+    type: internal
+spec:
+  type: {{ .Values.triton.service.internal.type }}
+  ports:
+  - name: http
+    port: {{ .Values.triton.service.httpPort }}
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: {{ .Values.triton.service.grpcPort }}
+    targetPort: grpc
+    protocol: TCP
+  - name: metrics
+    port: {{ .Values.triton.service.metricsPort }}
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    {{- include "qwen3-8b-triton.triton.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- end }}
+

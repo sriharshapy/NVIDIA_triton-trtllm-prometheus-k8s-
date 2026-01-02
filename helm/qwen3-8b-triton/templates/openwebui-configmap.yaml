@@ -1,0 +1,18 @@
+{{- if .Values.openwebui.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openwebui-config
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.openwebui.labels" . | nindent 4 }}
+data:
+  TRITON_SERVICE: {{ .Values.openwebui.config.tritonService | quote }}
+  TRITON_HTTP_PORT: {{ .Values.openwebui.config.tritonHttpPort | quote }}
+  TRITON_GRPC_PORT: {{ .Values.openwebui.config.tritonGrpcPort | quote }}
+  TRITON_MODEL_NAME: {{ .Values.openwebui.config.tritonModelName | quote }}
+  WEBUI_NAME: {{ .Values.openwebui.config.webuiName | quote }}
+  ENABLE_SIGNUP: {{ .Values.openwebui.config.enableSignup | quote }}
+  LOG_LEVEL: {{ .Values.openwebui.config.logLevel | quote }}
+{{- end }}
+

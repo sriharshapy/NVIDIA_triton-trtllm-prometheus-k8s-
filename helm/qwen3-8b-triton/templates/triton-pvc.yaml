@@ -1,0 +1,18 @@
+{{- if and .Values.triton.enabled .Values.triton.storage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage
+  namespace: {{ include "qwen3-8b-triton.namespace" . }}
+  labels:
+    {{- include "qwen3-8b-triton.triton.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.triton.storage.accessMode }}
+  storageClassName: {{ .Values.triton.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.triton.storage.size }}
+  volumeMode: Filesystem
+{{- end }}
+
