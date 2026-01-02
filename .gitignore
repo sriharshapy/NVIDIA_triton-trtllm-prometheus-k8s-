@@ -3,8 +3,11 @@
 logs/
 *.log.*
 
-
+# GCP Service Account Keys (Sensitive - DO NOT COMMIT)
 github-actions-key.json
+*-key.json
+*.json.key
+gcp-key*.json
 
 # Terraform
 terraform/.terraform/
