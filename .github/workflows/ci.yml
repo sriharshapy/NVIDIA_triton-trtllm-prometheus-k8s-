@@ -71,7 +71,7 @@ jobs:
           tar -xzf kubeconform.tar.gz
           sudo mv kubeconform /usr/local/bin/
           chmod +x /usr/local/bin/kubeconform
-          kubeconform -version
+          kubeconform -v
           echo "[$(date)] kubeconform installed successfully"
 
       - name: Validate K8s manifests
