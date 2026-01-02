@@ -47,7 +47,30 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          echo "[$(date)] Installing gke-gcloud-auth-plugin..."
+          gcloud components install gke-gcloud-auth-plugin --quiet || {
+            echo "[$(date)] Component install failed, trying alternative method..."
+            # Alternative: Download and install manually
+            ARCH=$(uname -m)
+            if [ "$ARCH" = "x86_64" ]; then
+              ARCH="amd64"
+            elif [ "$ARCH" = "aarch64" ]; then
+              ARCH="arm64"
+            fi
+            PLUGIN_VERSION=$(gcloud version --format="value(Google Cloud SDK)" | cut -d' ' -f4)
+            curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-${PLUGIN_VERSION}-linux-${ARCH}.tar.gz 2>/dev/null || \
+            curl -O https://storage.googleapis.com/cloud-sdk-release/google-cloud-cli-${PLUGIN_VERSION}-linux-${ARCH}.tar.gz 2>/dev/null || \
+            echo "⚠ Could not download plugin, will try to use gcloud auth"
+          }
+          # Ensure plugin is in PATH
+          export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+          echo "[$(date)] gke-gcloud-auth-plugin installation attempted"
+
       - name: Configure kubectl
+        env:
+          USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
           echo "[$(date)] Configuring kubectl for GKE cluster..."
           gcloud container clusters get-credentials \
@@ -227,7 +250,30 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          echo "[$(date)] Installing gke-gcloud-auth-plugin..."
+          # Install the plugin component
+          gcloud components install gke-gcloud-auth-plugin --quiet 2>&1 || {
+            echo "[$(date)] Standard install failed, trying alternative..."
+            # Alternative: Use apt-get if available
+            sudo apt-get update && sudo apt-get install -y google-cloud-sdk-gke-gcloud-auth-plugin 2>&1 || {
+              echo "[$(date)] Apt-get install failed, will use gcloud auth method"
+            }
+          }
+          # Verify installation
+          if command -v gke-gcloud-auth-plugin &> /dev/null; then
+            echo "[$(date)] ✓ gke-gcloud-auth-plugin installed successfully"
+          else
+            echo "[$(date)] ⚠ gke-gcloud-auth-plugin not found in PATH, but continuing..."
+          fi
+          # Set environment variable for kubectl
+          echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
+          echo "[$(date)] gke-gcloud-auth-plugin installation completed"
+
       - name: Configure kubectl
+        env:
+          USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
           echo "[$(date)] Configuring kubectl for GKE cluster..."
           gcloud container clusters get-credentials \
