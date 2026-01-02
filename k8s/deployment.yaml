@@ -144,12 +144,6 @@ spec:
             memory: "64Gi"
             cpu: "16"
         
-        # Add Prometheus scrape annotations
-        annotations:
-          prometheus.io/scrape: "true"
-          prometheus.io/port: "8002"
-          prometheus.io/path: "/metrics"
-        
         livenessProbe:
           httpGet:
             path: /v2/health/live
