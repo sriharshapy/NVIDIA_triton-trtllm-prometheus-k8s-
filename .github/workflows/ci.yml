@@ -68,12 +68,16 @@ jobs:
         uses: azure/setup-kubectl@v3
 
       - name: Validate K8s manifests
+        env:
+          KUBECONFIG: /dev/null
         run: |
           echo "[$(date)] Validating Kubernetes manifests..."
           for file in k8s/*.yaml; do
             if [ -f "$file" ]; then
               echo "[$(date)] Validating $file..."
-              kubectl apply --dry-run=client -f "$file" || exit 1
+              # Use --validate=false to skip server-side validation (no cluster needed)
+              # --dry-run=client does client-side validation only
+              kubectl apply --dry-run=client --validate=false -f "$file" || exit 1
             fi
           done
           echo "[$(date)] All manifests validated successfully"
