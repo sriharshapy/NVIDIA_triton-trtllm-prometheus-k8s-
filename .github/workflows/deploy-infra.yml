@@ -367,8 +367,38 @@ jobs:
         run: |
           echo "[$(date)] Destroying GKE infrastructure..."
           terraform init -input=false
+          
+          # Refresh state to ensure we have the latest resource state
+          echo "[$(date)] Refreshing Terraform state..."
+          terraform refresh -input=false || echo "⚠ State refresh had issues, continuing with destroy"
+          
+          # Show what will be destroyed
+          echo "[$(date)] Planning destroy operation..."
+          terraform plan -destroy -input=false -out=tfplan-destroy || echo "⚠ Plan had issues, continuing with destroy"
+          
+          # Destroy resources
+          echo "[$(date)] Executing Terraform destroy..."
           terraform destroy -input=false -auto-approve
-          echo "[$(date)] GKE infrastructure destroyed"
+          
+          # Verify destruction
+          echo "[$(date)] Verifying resources are destroyed..."
+          CLUSTER_NAME="${{ secrets.GKE_CLUSTER_NAME || 'trt-llm-cluster' }}"
+          ZONE="${{ secrets.GCP_ZONE || 'us-central1-a' }}"
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          
+          if gcloud container clusters describe ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+            echo "⚠ WARNING: Cluster still exists after destroy. Attempting manual cleanup..."
+            # Try to delete node pools first
+            gcloud container node-pools delete a100-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --quiet 2>/dev/null || true
+            gcloud container node-pools delete cpu-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --quiet 2>/dev/null || true
+            # Then delete cluster
+            gcloud container clusters delete ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --quiet 2>/dev/null || true
+            echo "[$(date)] Manual cleanup attempted"
+          else
+            echo "[$(date)] ✓ Cluster successfully destroyed"
+          fi
+          
+          echo "[$(date)] GKE infrastructure destroy completed"
 
       - name: Create Summary
         run: |
