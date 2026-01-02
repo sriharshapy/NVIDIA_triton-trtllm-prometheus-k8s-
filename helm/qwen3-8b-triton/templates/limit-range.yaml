@@ -14,8 +14,7 @@ spec:
     defaultRequest:
       cpu: {{ .Values.limitRange.defaultRequest.cpu | quote }}
       memory: {{ .Values.limitRange.defaultRequest.memory | quote }}
-    type: Container
-  - max:
+    max:
       cpu: {{ .Values.limitRange.max.cpu | quote }}
       memory: {{ .Values.limitRange.max.memory | quote }}
     min:

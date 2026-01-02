@@ -98,17 +98,48 @@ jobs:
           kubectl get nodes -o json | jq -r '.items[] | select(.status.allocatable."nvidia.com/gpu" != null) | "✓ \(.metadata.name): \(.status.allocatable."nvidia.com/gpu") GPU(s)"' || echo "⚠ No GPU nodes found"
           echo "[$(date)] GPU verification completed"
 
+      - name: Clean up conflicting resources
+        run: |
+          echo "[$(date)] Checking for existing resources that might conflict..."
+          # Delete existing LimitRange if it exists (to avoid duplicate type error)
+          if kubectl get limitrange triton-inference-limits -n triton-inference 2>/dev/null; then
+            echo "[$(date)] Removing existing LimitRange to avoid conflicts..."
+            kubectl delete limitrange triton-inference-limits -n triton-inference --ignore-not-found=true
+            sleep 2
+          fi
+          # Delete existing ResourceQuota if it exists
+          if kubectl get resourcequota triton-inference-quota -n triton-inference 2>/dev/null; then
+            echo "[$(date)] Removing existing ResourceQuota to avoid conflicts..."
+            kubectl delete resourcequota triton-inference-quota -n triton-inference --ignore-not-found=true
+            sleep 2
+          fi
+          echo "[$(date)] Cleanup completed"
+
       - name: Deploy with Helm
         run: |
           echo "[$(date)] Deploying with Helm..."
-          helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
-            --namespace triton-inference \
-            --create-namespace \
-            --wait \
-            --timeout 10m \
-            --set triton.enabled=true \
-            --set openwebui.enabled=true \
-            --set prometheus.enabled=true
+          # Check if namespace exists, if so, don't use --create-namespace
+          if kubectl get namespace triton-inference 2>/dev/null; then
+            echo "[$(date)] Namespace triton-inference already exists, skipping creation"
+            helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
+              --namespace triton-inference \
+              --wait \
+              --timeout 10m \
+              --set triton.enabled=true \
+              --set openwebui.enabled=true \
+              --set prometheus.enabled=true \
+              --set namespace.create=false
+          else
+            echo "[$(date)] Creating namespace triton-inference"
+            helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
+              --namespace triton-inference \
+              --create-namespace \
+              --wait \
+              --timeout 10m \
+              --set triton.enabled=true \
+              --set openwebui.enabled=true \
+              --set prometheus.enabled=true
+          fi
           echo "[$(date)] Helm deployment completed"
 
       - name: Verify deployment status
