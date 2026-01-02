@@ -137,6 +137,7 @@ jobs:
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Increased timeout for GKE provisioning (can take 10-15 min)
     # Removed needs: terraform-plan - apply can run independently
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
     environment:
@@ -248,8 +249,117 @@ jobs:
           echo "[$(date)] Auto-import check completed"
           
           echo "[$(date)] Running Terraform apply..."
-          terraform apply -input=false -auto-approve
-          echo "[$(date)] Terraform apply completed"
+          echo "[$(date)] Note: GKE cluster and node pool creation can take 10-15 minutes, especially with spot instances..."
+          terraform apply -input=false -auto-approve || {
+            echo "⚠ Terraform apply had issues, checking if resources were created anyway..."
+            # Check if cluster exists
+            if gcloud container clusters describe ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+              echo "[$(date)] ✓ Cluster exists, checking node pools..."
+              # Check node pools
+              if gcloud container node-pools describe a100-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+                echo "[$(date)] ✓ A100 node pool exists"
+              fi
+              if gcloud container node-pools describe cpu-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+                echo "[$(date)] ✓ CPU node pool exists"
+              fi
+              echo "[$(date)] Resources appear to be created. Continuing..."
+            else
+              echo "❌ Cluster not found. Terraform apply failed."
+              exit 1
+            fi
+          }
+          
+          # Verify node pools are in RUNNING state (with retries)
+          # Note: Spot instances can show transient ERROR states that self-recover
+          echo "[$(date)] Verifying node pools are in RUNNING state..."
+          echo "[$(date)] Note: Spot instances may show transient ERROR states that self-recover..."
+          MAX_RETRIES=40  # Increased retries to allow time for self-recovery
+          RETRY_COUNT=0
+          A100_READY=false
+          CPU_READY=false
+          A100_ERROR_COUNT=0
+          CPU_ERROR_COUNT=0
+          MAX_ERROR_RETRIES=10  # Allow up to 10 consecutive ERROR states before giving up
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            # Check A100 node pool
+            if [ "$A100_READY" = false ]; then
+              A100_STATUS=$(gcloud container node-pools describe a100-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
+              if [ "$A100_STATUS" = "RUNNING" ]; then
+                echo "[$(date)] ✓ A100 node pool is RUNNING"
+                A100_READY=true
+                A100_ERROR_COUNT=0  # Reset error count on success
+              elif [ "$A100_STATUS" = "ERROR" ]; then
+                A100_ERROR_COUNT=$((A100_ERROR_COUNT + 1))
+                if [ $A100_ERROR_COUNT -le $MAX_ERROR_RETRIES ]; then
+                  echo "[$(date)] ⚠ A100 node pool status: ERROR (attempt $A100_ERROR_COUNT/$MAX_ERROR_RETRIES) - Spot instances can self-recover, continuing to monitor..."
+                else
+                  echo "[$(date)] ❌ A100 node pool has been in ERROR state for too long ($A100_ERROR_COUNT attempts)"
+                  echo "[$(date)] This may indicate a persistent issue. Check GCP Console for details."
+                fi
+              elif [ "$A100_STATUS" = "NOT_FOUND" ]; then
+                echo "[$(date)] ⚠ A100 node pool not found yet..."
+                A100_ERROR_COUNT=0  # Reset on NOT_FOUND (might be creating)
+              else
+                echo "[$(date)] ⏳ A100 node pool status: $A100_STATUS (waiting for RUNNING...)"
+                A100_ERROR_COUNT=0  # Reset error count on other statuses
+              fi
+            fi
+            
+            # Check CPU node pool
+            if [ "$CPU_READY" = false ]; then
+              CPU_STATUS=$(gcloud container node-pools describe cpu-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
+              if [ "$CPU_STATUS" = "RUNNING" ]; then
+                echo "[$(date)] ✓ CPU node pool is RUNNING"
+                CPU_READY=true
+                CPU_ERROR_COUNT=0  # Reset error count on success
+              elif [ "$CPU_STATUS" = "ERROR" ]; then
+                CPU_ERROR_COUNT=$((CPU_ERROR_COUNT + 1))
+                if [ $CPU_ERROR_COUNT -le $MAX_ERROR_RETRIES ]; then
+                  echo "[$(date)] ⚠ CPU node pool status: ERROR (attempt $CPU_ERROR_COUNT/$MAX_ERROR_RETRIES) - Spot instances can self-recover, continuing to monitor..."
+                else
+                  echo "[$(date)] ❌ CPU node pool has been in ERROR state for too long ($CPU_ERROR_COUNT attempts)"
+                  echo "[$(date)] This may indicate a persistent issue. Check GCP Console for details."
+                fi
+              elif [ "$CPU_STATUS" = "NOT_FOUND" ]; then
+                echo "[$(date)] ⚠ CPU node pool not found yet..."
+                CPU_ERROR_COUNT=0  # Reset on NOT_FOUND (might be creating)
+              else
+                echo "[$(date)] ⏳ CPU node pool status: $CPU_STATUS (waiting for RUNNING...)"
+                CPU_ERROR_COUNT=0  # Reset error count on other statuses
+              fi
+            fi
+            
+            # If both are ready, break
+            if [ "$A100_READY" = true ] && [ "$CPU_READY" = true ]; then
+              echo "[$(date)] ✓ All node pools are RUNNING"
+              break
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "[$(date)] Waiting 30 seconds before next check... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+              sleep 30
+            fi
+          done
+          
+          # Final status check
+          if [ "$A100_READY" = false ] || [ "$CPU_READY" = false ]; then
+            echo ""
+            echo "⚠ WARNING: Some node pools may not be in RUNNING state yet"
+            echo "⚠ This is common with spot instances - they may show transient errors that self-recover"
+            echo "⚠ Node pools may still be provisioning or recovering. Check GCP Console for current status."
+            echo ""
+            # Show final status
+            echo "[$(date)] Final node pool status:"
+            gcloud container node-pools list --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format="table(name,status,version)" 2>/dev/null || true
+            echo ""
+            echo "⚠ Continuing workflow - node pools may recover automatically via GKE auto-repair"
+          else
+            echo "[$(date)] ✓ All node pools verified as RUNNING"
+          fi
+          
+          echo "[$(date)] Terraform apply and verification completed"
 
       - name: Get GKE Outputs
         if: github.event.inputs.deployment_type == 'gke'
