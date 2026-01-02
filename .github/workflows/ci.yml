@@ -79,6 +79,11 @@ jobs:
           echo "[$(date)] Validating Kubernetes manifests..."
           for file in k8s/*.yaml; do
             if [ -f "$file" ]; then
+              # Skip kustomization.yaml - it's a Kustomize config, not a Kubernetes resource
+              if [[ "$(basename "$file")" == "kustomization.yaml" ]]; then
+                echo "[$(date)] Skipping $file (Kustomize config file)"
+                continue
+              fi
               echo "[$(date)] Validating $file..."
               # kubeconform validates against Kubernetes OpenAPI schemas without needing a cluster
               kubeconform -strict -summary "$file" || exit 1
