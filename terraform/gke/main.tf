@@ -261,9 +261,9 @@ output "cluster_location" {
 }
 
 output "cluster_ca_certificate" {
-  # Use master_auth for older GKE versions, or cluster_ca_certificate for newer
-  # This handles both authentication methods
-  value       = try(google_container_cluster.trt_llm_cluster.master_auth[0].cluster_ca_certificate, google_container_cluster.trt_llm_cluster.cluster_ca_certificate, "")
+  # CA certificate is available via master_auth
+  # For clusters with Workload Identity, master_auth may be limited but CA cert is still available
+  value       = try(google_container_cluster.trt_llm_cluster.master_auth[0].cluster_ca_certificate, "")
   description = "GKE cluster CA certificate"
   sensitive   = true
 }
