@@ -388,12 +388,60 @@ jobs:
           
           if gcloud container clusters describe ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
             echo "⚠ WARNING: Cluster still exists after destroy. Attempting manual cleanup..."
-            # Try to delete node pools first
-            gcloud container node-pools delete a100-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --quiet 2>/dev/null || true
-            gcloud container node-pools delete cpu-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --quiet 2>/dev/null || true
-            # Then delete cluster
-            gcloud container clusters delete ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} --quiet 2>/dev/null || true
-            echo "[$(date)] Manual cleanup attempted"
+            
+            # First, try to get kubectl credentials to clean up Kubernetes resources
+            echo "[$(date)] Attempting to clean up Kubernetes resources..."
+            if gcloud container clusters get-credentials ${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+              # Delete all resources in triton-inference namespace
+              kubectl delete namespace triton-inference --ignore-not-found=true --timeout=60s 2>/dev/null || true
+              # Delete any remaining resources
+              kubectl delete all --all --all-namespaces --timeout=30s 2>/dev/null || true
+              echo "[$(date)] Kubernetes resources cleanup attempted"
+            fi
+            
+            # Delete node pools using async deletion (non-blocking)
+            echo "[$(date)] Starting node pool deletion (async)..."
+            
+            # A100 node pool - start deletion in background
+            if gcloud container node-pools describe a100-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+              echo "[$(date)] Initiating deletion of a100-node-pool..."
+              (timeout 60 gcloud container node-pools delete a100-node-pool \
+                --cluster=${CLUSTER_NAME} \
+                --zone=${ZONE} \
+                --project=${PROJECT_ID} \
+                --quiet \
+                --async 2>&1 && echo "[$(date)] ✓ a100-node-pool deletion initiated") || \
+              echo "⚠ a100-node-pool deletion command failed or timed out"
+            fi
+            
+            # CPU node pool - start deletion in background
+            if gcloud container node-pools describe cpu-node-pool --cluster=${CLUSTER_NAME} --zone=${ZONE} --project=${PROJECT_ID} 2>/dev/null; then
+              echo "[$(date)] Initiating deletion of cpu-node-pool..."
+              (timeout 60 gcloud container node-pools delete cpu-node-pool \
+                --cluster=${CLUSTER_NAME} \
+                --zone=${ZONE} \
+                --project=${PROJECT_ID} \
+                --quiet \
+                --async 2>&1 && echo "[$(date)] ✓ cpu-node-pool deletion initiated") || \
+              echo "⚠ cpu-node-pool deletion command failed or timed out"
+            fi
+            
+            # Wait a bit for node pools to start deleting
+            echo "[$(date)] Waiting 30 seconds for node pool deletions to initialize..."
+            sleep 30
+            
+            # Delete cluster using async deletion (non-blocking)
+            echo "[$(date)] Initiating cluster deletion (async)..."
+            (timeout 60 gcloud container clusters delete ${CLUSTER_NAME} \
+              --zone=${ZONE} \
+              --project=${PROJECT_ID} \
+              --quiet \
+              --async 2>&1 && echo "[$(date)] ✓ Cluster deletion initiated") || \
+            echo "⚠ Cluster deletion command failed or timed out"
+            
+            echo "[$(date)] Manual cleanup commands executed"
+            echo "⚠ Note: Deletion is running asynchronously. Cluster deletion may take 5-10 minutes."
+            echo "⚠ Check GCP Console or run: gcloud container clusters list --zone=${ZONE} --project=${PROJECT_ID}"
           else
             echo "[$(date)] ✓ Cluster successfully destroyed"
           fi
