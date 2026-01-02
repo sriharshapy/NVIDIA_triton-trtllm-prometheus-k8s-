@@ -64,20 +64,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Install kubeconform
+        run: |
+          echo "[$(date)] Installing kubeconform..."
+          wget -O kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+          chmod +x /usr/local/bin/kubeconform
+          kubeconform -version
+          echo "[$(date)] kubeconform installed successfully"
 
       - name: Validate K8s manifests
-        env:
-          KUBECONFIG: /dev/null
         run: |
           echo "[$(date)] Validating Kubernetes manifests..."
           for file in k8s/*.yaml; do
             if [ -f "$file" ]; then
               echo "[$(date)] Validating $file..."
-              # Use --validate=false to skip server-side validation (no cluster needed)
-              # --dry-run=client does client-side validation only
-              kubectl apply --dry-run=client --validate=false -f "$file" || exit 1
+              # kubeconform validates against Kubernetes OpenAPI schemas without needing a cluster
+              kubeconform -strict -summary "$file" || exit 1
             fi
           done
           echo "[$(date)] All manifests validated successfully"
