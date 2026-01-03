@@ -6,6 +6,8 @@ metadata:
   namespace: {{ include "qwen3-8b-triton.namespace" . }}
   labels:
     {{- include "qwen3-8b-triton.openwebui.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/resource-policy": keep
 spec:
   accessModes:
     - {{ .Values.openwebui.storage.accessMode }}

@@ -121,25 +121,98 @@ jobs:
           # Check if namespace exists, if so, don't use --create-namespace
           if kubectl get namespace triton-inference 2>/dev/null; then
             echo "[$(date)] Namespace triton-inference already exists, skipping creation"
+            # First, ensure PVCs exist or are created
+            echo "[$(date)] Ensuring PVCs are created..."
             helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
               --namespace triton-inference \
-              --wait \
               --timeout 10m \
               --set triton.enabled=true \
               --set openwebui.enabled=true \
               --set prometheus.enabled=true \
-              --set namespace.create=false
+              --set namespace.create=false \
+              --wait=false || {
+              echo "⚠ First install attempt had issues, trying with --force flag..."
+              helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
+                --namespace triton-inference \
+                --timeout 10m \
+                --set triton.enabled=true \
+                --set openwebui.enabled=true \
+                --set prometheus.enabled=true \
+                --set namespace.create=false \
+                --force \
+                --wait=false
+            }
           else
             echo "[$(date)] Creating namespace triton-inference"
             helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
               --namespace triton-inference \
               --create-namespace \
-              --wait \
               --timeout 10m \
               --set triton.enabled=true \
               --set openwebui.enabled=true \
-              --set prometheus.enabled=true
+              --set prometheus.enabled=true \
+              --wait=false || {
+              echo "⚠ First install attempt had issues, trying with --force flag..."
+              helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
+                --namespace triton-inference \
+                --create-namespace \
+                --timeout 10m \
+                --set triton.enabled=true \
+                --set openwebui.enabled=true \
+                --set prometheus.enabled=true \
+                --force \
+                --wait=false
+            }
           fi
+          
+          # Wait for PVCs to be created and bound
+          echo "[$(date)] Waiting for PVCs to be created and bound..."
+          MAX_PVC_WAIT=60
+          PVC_WAIT_COUNT=0
+          while [ $PVC_WAIT_COUNT -lt $MAX_PVC_WAIT ]; do
+            PVC_COUNT=$(kubectl get pvc -n triton-inference --no-headers 2>/dev/null | wc -l || echo "0")
+            if [ "$PVC_COUNT" -gt 0 ]; then
+              BOUND_COUNT=$(kubectl get pvc -n triton-inference -o jsonpath='{.items[*].status.phase}' 2>/dev/null | grep -o Bound | wc -l || echo "0")
+              if [ "$BOUND_COUNT" -eq "$PVC_COUNT" ]; then
+                echo "[$(date)] ✓ All PVCs are bound"
+                break
+              fi
+            fi
+            PVC_WAIT_COUNT=$((PVC_WAIT_COUNT + 1))
+            if [ $PVC_WAIT_COUNT -lt $MAX_PVC_WAIT ]; then
+              echo "[$(date)] Waiting for PVCs... ($PVC_WAIT_COUNT/$MAX_PVC_WAIT)"
+              sleep 2
+            fi
+          done
+          
+          kubectl get pvc -n triton-inference || echo "⚠ Some PVCs may not exist yet"
+          
+          # Now upgrade with wait to ensure deployments are ready
+          echo "[$(date)] Upgrading with wait to ensure deployments are ready..."
+          if [ "$NAMESPACE_EXISTS" = "false" ]; then
+            helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
+              --namespace triton-inference \
+              --create-namespace \
+              --timeout 10m \
+              --set triton.enabled=true \
+              --set openwebui.enabled=true \
+              --set prometheus.enabled=true \
+              --wait \
+              --timeout 10m || echo "⚠ Helm wait had issues, but resources may still be deploying..."
+          else
+            helm upgrade --install qwen3-8b-triton ./helm/qwen3-8b-triton \
+              --namespace triton-inference \
+              --timeout 10m \
+              --set triton.enabled=true \
+              --set openwebui.enabled=true \
+              --set prometheus.enabled=true \
+              --set namespace.create=false \
+              --wait \
+              --timeout 10m || echo "⚠ Helm wait had issues, but resources may still be deploying..."
+          fi
+          
+          echo "[$(date)] Checking deployment status..."
+          kubectl get deployments -n triton-inference || true
           echo "[$(date)] Helm deployment completed"
 
       - name: Verify deployment status
@@ -281,6 +354,12 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install jq
+        run: |
+          echo "[$(date)] Installing jq..."
+          sudo apt-get update && sudo apt-get install -y jq
+          echo "[$(date)] jq installed"
+
       - name: Install gke-gcloud-auth-plugin
         run: |
           echo "[$(date)] Installing gke-gcloud-auth-plugin..."
@@ -325,11 +404,65 @@ jobs:
           helm uninstall qwen3-8b-triton --namespace triton-inference || echo "⚠ Release not found, may already be deleted"
           echo "[$(date)] Helm undeployment completed"
           
-          # Optionally delete namespace if empty
-          echo "[$(date)] Checking if namespace should be deleted..."
+          # Wait a bit for Helm to clean up resources
+          echo "[$(date)] Waiting for Helm cleanup..."
+          sleep 5
+          
+          # Force delete any remaining resources that might block namespace deletion
+          echo "[$(date)] Cleaning up any remaining resources..."
+          
+          # Delete PVCs (they might have finalizers)
+          kubectl delete pvc --all -n triton-inference --timeout=30s --force --grace-period=0 2>/dev/null || true
+          
+          # Delete any remaining pods
+          kubectl delete pods --all -n triton-inference --timeout=30s --force --grace-period=0 2>/dev/null || true
+          
+          # Delete any remaining services
+          kubectl delete svc --all -n triton-inference --timeout=30s --force --grace-period=0 2>/dev/null || true
+          
+          # Delete any remaining deployments
+          kubectl delete deployments --all -n triton-inference --timeout=30s --force --grace-period=0 2>/dev/null || true
+          
+          # Remove finalizers from PVCs that might be stuck
+          echo "[$(date)] Removing finalizers from stuck resources..."
+          for pvc in $(kubectl get pvc -n triton-inference -o name 2>/dev/null); do
+            kubectl patch $pvc -n triton-inference -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+          done
+          
+          # Remove finalizers from any remaining resources
+          for resource in $(kubectl api-resources --verbs=delete -o name | grep -v events); do
+            for item in $(kubectl get $resource -n triton-inference -o name 2>/dev/null); do
+              kubectl patch $item -n triton-inference -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+            done
+          done
+          
+          # Delete namespace
+          echo "[$(date)] Deleting namespace..."
           if kubectl get namespace triton-inference 2>/dev/null; then
-            kubectl delete namespace triton-inference --ignore-not-found=true || echo "⚠ Namespace deletion failed or still contains resources"
+            # Try normal deletion first
+            kubectl delete namespace triton-inference --timeout=60s 2>/dev/null || {
+              echo "[$(date)] Normal deletion timed out, attempting force deletion..."
+              # Remove finalizer from namespace itself
+              NAMESPACE_JSON=$(kubectl get namespace triton-inference -o json 2>/dev/null)
+              if [ -n "$NAMESPACE_JSON" ]; then
+                echo "$NAMESPACE_JSON" | jq '.spec.finalizers = []' | \
+                  kubectl replace --raw /api/v1/namespaces/triton-inference/finalize -f - 2>/dev/null || \
+                  echo "⚠ Could not remove namespace finalizers"
+              fi
+              
+              # Wait a bit and check
+              sleep 5
+              if kubectl get namespace triton-inference 2>/dev/null; then
+                echo "⚠ Namespace still exists but should be deleted soon"
+                echo "⚠ If it remains stuck, manually delete it from GCP Console"
+              else
+                echo "[$(date)] ✓ Namespace deleted successfully"
+              fi
+            }
+          else
+            echo "[$(date)] Namespace already deleted"
           fi
+          
           echo "[$(date)] Undeployment completed"
 
       - name: Create Summary
